@@ -1,0 +1,315 @@
+spring:
+  application:
+    name: demo
+
+request-context:
+  filter-config:
+    order: -2147483647  # Highest precedence + 1
+    exclude-patterns:
+      - /static/**
+      - /actuator/**
+      - /favicon.ico
+  fields:
+    userId:
+      upstream:
+        inbound:
+          source: CLAIM
+          key: sub
+          default: anonymous
+        outbound:
+          enrichAs: HEADER
+          key: X-User-Id
+          valueAs: STRING
+      downstream:
+        outbound:
+          enrichAs: HEADER
+          key: X-User-Id
+          valueAs: STRING
+      observability:
+        metrics:
+          cardinality: LOW
+        logging:
+          enabled: true
+      security:
+        sensitive: true
+        masking: "***"
+
+    applicationId:
+      upstream:
+        inbound:
+          source: HEADER
+          key: X-Application-Id
+          fallback:
+            source: QUERY
+            key: app_id
+        outbound:
+          enrichAs: QUERY
+          key: app_id
+          valueAs: EXPRESSION
+          value: "#requestContext.applicationId"
+      downstream:
+        outbound:
+          enrichAs: HEADER
+          key: X-Application-Id
+          valueAs: STRING
+      observability:
+        metrics:
+          cardinality: HIGH
+        logging:
+          enabled: true
+      security:
+        sensitive: false
+
+    clientId:
+      upstream:
+        inbound:
+          source: HEADER
+          key: X-Client-Id
+          fallback:
+            source: COOKIE
+            key: client_id
+      downstream:
+        outbound:
+          enrichAs: HEADER
+          key: X-Client-Id
+          valueAs: STRING
+      observability:
+        metrics:
+          cardinality: HIGH
+        logging:
+          enabled: true
+      security:
+        sensitive: false
+
+    sessionId:
+      upstream:
+        inbound:
+          source: SESSION
+          key: sessionId
+          fallback:
+            source: COOKIE
+            key: JSESSIONID
+      downstream:
+        outbound:
+          enrichAs: HEADER
+          key: X-Session-Id
+          valueAs: STRING
+      observability:
+        metrics:
+          cardinality: HIGH
+        logging:
+          enabled: true
+      security:
+        sensitive: true
+        masking: "***"
+
+    tenantId:
+      upstream:
+        inbound:
+          source: PATH
+          key: tenantId
+          pattern: "/api/v1/tenants/{tenantId}/**"
+      downstream:
+        outbound:
+          enrichAs: HEADER
+          key: X-Tenant-Id
+          valueAs: STRING
+      observability:
+        metrics:
+          cardinality: LOW
+        logging:
+          enabled: true
+      security:
+        sensitive: false
+
+    apiKey:
+      upstream:
+        inbound:
+          source: HEADER
+          key: X-API-Key
+          fallback:
+            source: QUERY
+            key: apiKey
+      downstream:
+        outbound:
+          enrichAs: HEADER
+          key: X-API-Key
+          valueAs: STRING
+      observability:
+        metrics:
+          cardinality: MEDIUM
+        logging:
+          enabled: false
+      security:
+        sensitive: true
+        masking: "***"
+
+    userRole:
+      upstream:
+        inbound:
+          source: TOKEN
+          key: roles
+          tokenType: JWT
+          fallback:
+            source: ATTRIBUTE
+            key: user.roles
+      downstream:
+        outbound:
+          enrichAs: HEADER
+          key: X-User-Roles
+          valueAs: JSON_ARRAY
+      observability:
+        metrics:
+          cardinality: LOW
+        logging:
+          enabled: true
+      security:
+        sensitive: false
+
+    requestId:
+      upstream:
+        inbound:
+          source: HEADER
+          key: X-Request-Id
+          generateIfAbsent: true
+          generator: UUID
+      downstream:
+        outbound:
+          enrichAs: HEADER
+          key: X-Request-Id
+          valueAs: STRING
+      observability:
+        metrics:
+          cardinality: HIGH
+        logging:
+          enabled: true
+      security:
+        sensitive: false
+
+    userEmail:
+      upstream:
+        inbound:
+          source: CLAIM
+          key: email
+          claimPath: user.email
+          fallback:
+            source: SESSION
+            key: userEmail
+      downstream:
+        outbound:
+          enrichAs: HEADER
+          key: X-User-Email
+          valueAs: STRING
+      observability:
+        metrics:
+          cardinality: HIGH
+        logging:
+          enabled: true
+      security:
+        sensitive: true
+        masking: "***@***.***"
+
+    transactionId:
+      downstream:
+        inbound:
+          source: HEADER
+          key: X-Transaction-Id
+      observability:
+        metrics:
+          cardinality: HIGH
+        logging:
+          enabled: true
+      security:
+        sensitive: false
+
+    rateLimit:
+      downstream:
+        inbound:
+          source: HEADER
+          key: X-Rate-Limit
+      observability:
+        metrics:
+          cardinality: NONE
+        logging:
+          enabled: false
+      security:
+        sensitive: false
+
+  # Global configuration for sources
+  sourceConfiguration:
+    token:
+      headerName: Authorization
+      prefix: Bearer
+      type: JWT
+      verificationKey: ${jwt.public.key}
+    cookie:
+      httpOnly: true
+      secure: true
+    session:
+      attributePrefix: "context."
+    claim:
+      nestedSeparator: "."
+      arrayIndex: "[]"
+
+# Logging Configuration
+logging:
+  pattern:
+    # Console pattern with MDC context
+    console: "%d{HH:mm:ss.SSS} [%thread] %-5level %logger{36} - %msg [request_id=%X{request_id}, user=%X{user}, tenant=%X{tenant}, application_id=%X{applicationId}, client_id=%X{clientId}]%n"
+    # File pattern
+    file: "%d{yyyy-MM-dd HH:mm:ss.SSS} [%thread] %-5level %logger{36} - %msg [request_id=%X{request_id}, user=%X{user}, tenant=%X{tenant}, application_id=%X{applicationId}, client_id=%X{clientId}]%n"
+  level:
+    # Application logging levels
+    com.example.demo: INFO
+    com.example.demo.filter: INFO
+    com.example.demo.service: INFO
+    com.example.demo.context: DEBUG
+    # Framework logging levels
+    org.springframework.security: WARN
+    org.springframework.web: WARN
+    org.apache.http: WARN
+    com.zaxxer.hikari: WARN
+  file:
+    name: logs/application.log
+
+---
+# JSON Logging Profile
+spring:
+  config:
+    activate:
+      on-profile: json-logs
+
+logging:
+  config: classpath:logback-spring.xml
+  level:
+    root: INFO
+    com.example.demo: INFO
+
+---
+# Development Profile
+spring:
+  config:
+    activate:
+      on-profile: dev,development,local
+
+logging:
+  level:
+    com.example.demo: DEBUG
+    com.example.demo.filter: INFO
+    com.example.demo.service: INFO
+    org.springframework.security: DEBUG
+
+---
+# Production Profile
+spring:
+  config:
+    activate:
+      on-profile: prod,production
+
+logging:
+  config: classpath:logback-spring.xml
+  level:
+    root: INFO
+    com.example.demo: INFO
+    org.springframework: WARN
+    org.apache: WARN

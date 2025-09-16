@@ -1,0 +1,194 @@
+package com.example.demo.config;
+
+import jakarta.servlet.http.HttpServletRequest;
+import lombok.Data;
+import org.springframework.web.context.request.RequestAttributes;
+import org.springframework.web.context.request.RequestContextHolder;
+import org.springframework.web.context.request.ServletRequestAttributes;
+
+import java.util.HashMap;
+import java.util.Map;
+import java.util.Optional;
+import java.util.concurrent.ConcurrentHashMap;
+
+/**
+ * Request context holder that stores extracted values from HTTP requests.
+ * Context is stored as an attribute in HttpServletRequest for the lifecycle of the request.
+ */
+@Data
+public class RequestContext {
+
+    // Unique attribute key for storing in HttpServletRequest
+    public static final String REQUEST_CONTEXT_ATTRIBUTE = "request.context";
+
+    // Instance fields
+    private final Map<String, String> values = new ConcurrentHashMap<>();
+    private final Map<String, String> maskedValues = new ConcurrentHashMap<>();
+
+    /**
+     * Store a value in the context
+     */
+    public void put(String key, String value) {
+        if (key != null && value != null) {
+            values.put(key, value);
+        }
+    }
+
+    /**
+     * Store a masked version of a sensitive value
+     */
+    public void putMasked(String key, String maskedValue) {
+        if (key != null && maskedValue != null) {
+            maskedValues.put(key, maskedValue);
+        }
+    }
+
+    /**
+     * Get a value from the context
+     */
+    public String get(String key) {
+        return values.get(key);
+    }
+
+    /**
+     * Get the masked value for a key
+     */
+    public String getMasked(String key) {
+        return maskedValues.get(key);
+    }
+
+    /**
+     * Get masked value if available, otherwise original value
+     */
+    public String getMaskedOrOriginal(String key) {
+        String masked = maskedValues.get(key);
+        return masked != null ? masked : values.get(key);
+    }
+
+    /**
+     * Get all values (returns a copy)
+     */
+    public Map<String, String> getAllValues() {
+        return new HashMap<>(values);
+    }
+
+    /**
+     * Get all masked values (returns a copy)
+     */
+    public Map<String, String> getAllMaskedValues() {
+        return new HashMap<>(maskedValues);
+    }
+
+    /**
+     * Check if context contains a key
+     */
+    public boolean containsKey(String key) {
+        return values.containsKey(key);
+    }
+
+    /**
+     * Get the number of values in context
+     */
+    public int size() {
+        return values.size();
+    }
+
+    /**
+     * Clear all values from context
+     */
+    public void clear() {
+        values.clear();
+        maskedValues.clear();
+    }
+
+    // ========================================
+    // Static methods for accessing current context from HttpServletRequest
+    // ========================================
+
+    /**
+     * Get the current RequestContext from the current HTTP request.
+     * Uses Spring's RequestContextHolder to access the current request.
+     *
+     * @return Optional containing the RequestContext if available
+     */
+    public static Optional<RequestContext> getCurrentContext() {
+        RequestAttributes requestAttributes = RequestContextHolder.getRequestAttributes();
+        if (requestAttributes instanceof ServletRequestAttributes) {
+            HttpServletRequest request = ((ServletRequestAttributes) requestAttributes).getRequest();
+            return getFromRequest(request);
+        }
+        return Optional.empty();
+    }
+
+    /**
+     * Get RequestContext from a specific HttpServletRequest
+     *
+     * @param request The HTTP request
+     * @return Optional containing the RequestContext if available
+     */
+    public static Optional<RequestContext> getFromRequest(HttpServletRequest request) {
+        if (request == null) {
+            return Optional.empty();
+        }
+
+        Object context = request.getAttribute(REQUEST_CONTEXT_ATTRIBUTE);
+        if (context instanceof RequestContext) {
+            return Optional.of((RequestContext) context);
+        }
+        return Optional.empty();
+    }
+
+    /**
+     * Set RequestContext in the current HTTP request
+     *
+     * @param context The RequestContext to store
+     */
+    public static void setCurrentContext(RequestContext context) {
+        RequestAttributes requestAttributes = RequestContextHolder.getRequestAttributes();
+        if (requestAttributes instanceof ServletRequestAttributes) {
+            HttpServletRequest request = ((ServletRequestAttributes) requestAttributes).getRequest();
+            setInRequest(request, context);
+        }
+    }
+
+    /**
+     * Set RequestContext in a specific HttpServletRequest
+     *
+     * @param request The HTTP request
+     * @param context The RequestContext to store
+     */
+    public static void setInRequest(HttpServletRequest request, RequestContext context) {
+        if (request != null && context != null) {
+            request.setAttribute(REQUEST_CONTEXT_ATTRIBUTE, context);
+        }
+    }
+
+    /**
+     * Remove RequestContext from the current HTTP request
+     */
+    public static void clearCurrentContext() {
+        RequestAttributes requestAttributes = RequestContextHolder.getRequestAttributes();
+        if (requestAttributes instanceof ServletRequestAttributes) {
+            HttpServletRequest request = ((ServletRequestAttributes) requestAttributes).getRequest();
+            clearFromRequest(request);
+        }
+    }
+
+    /**
+     * Remove RequestContext from a specific HttpServletRequest
+     *
+     * @param request The HTTP request
+     */
+    public static void clearFromRequest(HttpServletRequest request) {
+        if (request != null) {
+            request.removeAttribute(REQUEST_CONTEXT_ATTRIBUTE);
+        }
+    }
+
+    @Override
+    public String toString() {
+        return "RequestContext{" +
+                "values=" + values.size() + " fields, " +
+                "masked=" + maskedValues.size() + " fields}";
+    }
+}

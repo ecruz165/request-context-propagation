@@ -1,0 +1,137 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<configuration>
+    
+    <!-- Define properties for log patterns and file locations -->
+    <property name="LOG_PATTERN" value="%d{HH:mm:ss.SSS} [%thread] %-5level %logger{36} - %msg [request_id=%X{request_id}, user=%X{user}, tenant=%X{tenant}, application_id=%X{applicationId}, client_id=%X{clientId}]%n"/>
+    <property name="LOG_FILE" value="${LOG_FILE:-logs/application}"/>
+    
+    <!-- Console Appender with Pattern Layout -->
+    <appender name="CONSOLE" class="ch.qos.logback.core.ConsoleAppender">
+        <encoder>
+            <pattern>${LOG_PATTERN}</pattern>
+        </encoder>
+    </appender>
+    
+    <!-- JSON Console Appender with Logstash Encoder -->
+    <appender name="JSON_CONSOLE" class="ch.qos.logback.core.ConsoleAppender">
+        <encoder class="net.logstash.logback.encoder.LogstashEncoder">
+            <includeMdc>true</includeMdc>
+            <includeContext>true</includeContext>
+            <includeMdcKeyName>mdc</includeMdcKeyName>
+            <customFields>{"service":"request-context-propagation","version":"0.0.1-SNAPSHOT"}</customFields>
+            <fieldNames>
+                <timestamp>@timestamp</timestamp>
+                <level>level</level>
+                <logger>logger</logger>
+                <thread>thread</thread>
+                <message>message</message>
+            </fieldNames>
+        </encoder>
+    </appender>
+    
+    <!-- JSON File Appender -->
+    <appender name="JSON_FILE" class="ch.qos.logback.core.rolling.RollingFileAppender">
+        <file>${LOG_FILE}.json</file>
+        <encoder class="net.logstash.logback.encoder.LogstashEncoder">
+            <includeMdc>true</includeMdc>
+            <includeContext>true</includeContext>
+            <includeMdcKeyName>mdc</includeMdcKeyName>
+            <customFields>{"service":"request-context-propagation","version":"0.0.1-SNAPSHOT"}</customFields>
+            <fieldNames>
+                <timestamp>@timestamp</timestamp>
+                <level>level</level>
+                <logger>logger</logger>
+                <thread>thread</thread>
+                <message>message</message>
+            </fieldNames>
+        </encoder>
+        <rollingPolicy class="ch.qos.logback.core.rolling.TimeBasedRollingPolicy">
+            <fileNamePattern>${LOG_FILE}.json.%d{yyyy-MM-dd}.gz</fileNamePattern>
+            <maxHistory>30</maxHistory>
+            <totalSizeCap>1GB</totalSizeCap>
+        </rollingPolicy>
+    </appender>
+    
+    <!-- Standard File Appender -->
+    <appender name="FILE" class="ch.qos.logback.core.rolling.RollingFileAppender">
+        <file>${LOG_FILE}.log</file>
+        <encoder>
+            <pattern>${LOG_PATTERN}</pattern>
+        </encoder>
+        <rollingPolicy class="ch.qos.logback.core.rolling.TimeBasedRollingPolicy">
+            <fileNamePattern>${LOG_FILE}.log.%d{yyyy-MM-dd}.gz</fileNamePattern>
+            <maxHistory>30</maxHistory>
+            <totalSizeCap>1GB</totalSizeCap>
+        </rollingPolicy>
+    </appender>
+    
+    <!-- Async Appender for better performance -->
+    <appender name="ASYNC_JSON" class="ch.qos.logback.classic.AsyncAppender">
+        <appender-ref ref="JSON_FILE"/>
+        <queueSize>512</queueSize>
+        <discardingThreshold>0</discardingThreshold>
+        <includeCallerData>false</includeCallerData>
+    </appender>
+    
+    <!-- Profile-specific configurations -->
+    
+    <!-- Development Profile: Use console with pattern -->
+    <springProfile name="dev,development,local">
+        <root level="INFO">
+            <appender-ref ref="CONSOLE"/>
+        </root>
+        
+        <!-- Enable debug logging for our application -->
+        <logger name="com.example.demo" level="DEBUG"/>
+        <logger name="com.example.demo.filter" level="INFO"/>
+        <logger name="com.example.demo.service" level="INFO"/>
+    </springProfile>
+    
+    <!-- Production Profile: Use JSON logging -->
+    <springProfile name="prod,production">
+        <root level="INFO">
+            <appender-ref ref="JSON_CONSOLE"/>
+            <appender-ref ref="ASYNC_JSON"/>
+        </root>
+        
+        <!-- Reduce logging noise in production -->
+        <logger name="org.springframework" level="WARN"/>
+        <logger name="org.apache" level="WARN"/>
+        <logger name="com.zaxxer.hikari" level="WARN"/>
+    </springProfile>
+    
+    <!-- Test Profile: Minimal logging -->
+    <springProfile name="test">
+        <root level="WARN">
+            <appender-ref ref="CONSOLE"/>
+        </root>
+        
+        <!-- Enable our application logs for testing -->
+        <logger name="com.example.demo" level="INFO"/>
+    </springProfile>
+    
+    <!-- Default configuration (when no profile is active) -->
+    <springProfile name="!dev &amp; !development &amp; !local &amp; !prod &amp; !production &amp; !test">
+        <root level="INFO">
+            <appender-ref ref="CONSOLE"/>
+            <appender-ref ref="FILE"/>
+        </root>
+        
+        <logger name="com.example.demo" level="INFO"/>
+    </springProfile>
+    
+    <!-- Specific logger configurations -->
+    <logger name="org.springframework.security" level="DEBUG" additivity="false">
+        <appender-ref ref="CONSOLE"/>
+    </logger>
+    
+    <logger name="org.springframework.web" level="DEBUG" additivity="false">
+        <appender-ref ref="CONSOLE"/>
+    </logger>
+    
+    <!-- Request Context specific logging -->
+    <logger name="com.example.demo.filter.RequestContextExtractionFilter" level="INFO"/>
+    <logger name="com.example.demo.service.RequestContextService" level="INFO"/>
+    <logger name="com.example.demo.service.RequestContextExtractor" level="DEBUG"/>
+    
+</configuration>
