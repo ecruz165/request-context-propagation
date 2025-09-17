@@ -12,38 +12,88 @@
         </encoder>
     </appender>
     
-    <!-- JSON Console Appender with Logstash Encoder -->
+    <!-- Enhanced JSON Console Appender with Custom Request Context Provider -->
     <appender name="JSON_CONSOLE" class="ch.qos.logback.core.ConsoleAppender">
-        <encoder class="net.logstash.logback.encoder.LogstashEncoder">
-            <includeMdc>true</includeMdc>
-            <includeContext>true</includeContext>
-            <includeMdcKeyName>mdc</includeMdcKeyName>
-            <customFields>{"service":"request-context-propagation","version":"0.0.1-SNAPSHOT"}</customFields>
-            <fieldNames>
-                <timestamp>@timestamp</timestamp>
-                <level>level</level>
-                <logger>logger</logger>
-                <thread>thread</thread>
-                <message>message</message>
-            </fieldNames>
+        <encoder class="net.logstash.logback.encoder.LoggingEventCompositeJsonEncoder">
+            <providers>
+                <!-- Standard fields -->
+                <timestamp>
+                    <pattern>yyyy-MM-dd'T'HH:mm:ss.SSSX</pattern>
+                    <timeZone>UTC</timeZone>
+                </timestamp>
+                <logLevel/>
+                <loggerName>
+                    <fieldName>logger</fieldName>
+                </loggerName>
+                <message/>
+                <stackTrace>
+                    <fieldName>stack_trace</fieldName>
+                </stackTrace>
+
+                <!-- Thread information -->
+                <pattern>
+                    <pattern>{"thread":"%thread"}</pattern>
+                </pattern>
+
+                <!-- Service metadata -->
+                <pattern>
+                    <pattern>{"service":"request-context-propagation","version":"0.0.1-SNAPSHOT","environment":"${ENVIRONMENT:-local}"}</pattern>
+                </pattern>
+
+                <!-- Custom Request Context Provider -->
+                <provider class="com.example.demo.logging.RequestContextJsonProvider">
+                    <fieldName>context</fieldName>
+                </provider>
+
+                <!-- Structured arguments -->
+                <arguments/>
+
+                <!-- Exception details -->
+                <stackTrace/>
+            </providers>
         </encoder>
     </appender>
     
-    <!-- JSON File Appender -->
+    <!-- Enhanced JSON File Appender -->
     <appender name="JSON_FILE" class="ch.qos.logback.core.rolling.RollingFileAppender">
         <file>${LOG_FILE}.json</file>
-        <encoder class="net.logstash.logback.encoder.LogstashEncoder">
-            <includeMdc>true</includeMdc>
-            <includeContext>true</includeContext>
-            <includeMdcKeyName>mdc</includeMdcKeyName>
-            <customFields>{"service":"request-context-propagation","version":"0.0.1-SNAPSHOT"}</customFields>
-            <fieldNames>
-                <timestamp>@timestamp</timestamp>
-                <level>level</level>
-                <logger>logger</logger>
-                <thread>thread</thread>
-                <message>message</message>
-            </fieldNames>
+        <encoder class="net.logstash.logback.encoder.LoggingEventCompositeJsonEncoder">
+            <providers>
+                <!-- Standard fields -->
+                <timestamp>
+                    <pattern>yyyy-MM-dd'T'HH:mm:ss.SSSX</pattern>
+                    <timeZone>UTC</timeZone>
+                </timestamp>
+                <logLevel/>
+                <loggerName>
+                    <fieldName>logger</fieldName>
+                </loggerName>
+                <message/>
+                <stackTrace>
+                    <fieldName>stack_trace</fieldName>
+                </stackTrace>
+
+                <!-- Thread information -->
+                <pattern>
+                    <pattern>{"thread":"%thread"}</pattern>
+                </pattern>
+
+                <!-- Service metadata -->
+                <pattern>
+                    <pattern>{"service":"request-context-propagation","version":"0.0.1-SNAPSHOT","environment":"${ENVIRONMENT:-local}"}</pattern>
+                </pattern>
+
+                <!-- Custom Request Context Provider -->
+                <provider class="com.example.demo.logging.RequestContextJsonProvider">
+                    <fieldName>context</fieldName>
+                </provider>
+
+                <!-- Structured arguments -->
+                <arguments/>
+
+                <!-- Exception details -->
+                <stackTrace/>
+            </providers>
         </encoder>
         <rollingPolicy class="ch.qos.logback.core.rolling.TimeBasedRollingPolicy">
             <fileNamePattern>${LOG_FILE}.json.%d{yyyy-MM-dd}.gz</fileNamePattern>
@@ -74,13 +124,26 @@
     </appender>
     
     <!-- Profile-specific configurations -->
-    
+
     <!-- Development Profile: Use console with pattern -->
     <springProfile name="dev,development,local">
         <root level="INFO">
             <appender-ref ref="CONSOLE"/>
         </root>
-        
+
+        <!-- Enable debug logging for our application -->
+        <logger name="com.example.demo" level="DEBUG"/>
+        <logger name="com.example.demo.filter" level="INFO"/>
+        <logger name="com.example.demo.service" level="INFO"/>
+    </springProfile>
+
+    <!-- JSON Development Profile: Use JSON console for development -->
+    <springProfile name="json,json-dev">
+        <root level="INFO">
+            <appender-ref ref="JSON_CONSOLE"/>
+            <appender-ref ref="JSON_FILE"/>
+        </root>
+
         <!-- Enable debug logging for our application -->
         <logger name="com.example.demo" level="DEBUG"/>
         <logger name="com.example.demo.filter" level="INFO"/>
@@ -110,13 +173,13 @@
         <logger name="com.example.demo" level="INFO"/>
     </springProfile>
     
-    <!-- Default configuration (when no profile is active) -->
-    <springProfile name="!dev &amp; !development &amp; !local &amp; !prod &amp; !production &amp; !test">
+    <!-- Default configuration (when no profile is active) - Use JSON by default -->
+    <springProfile name="!dev &amp; !development &amp; !local &amp; !prod &amp; !production &amp; !test &amp; !json &amp; !json-dev">
         <root level="INFO">
-            <appender-ref ref="CONSOLE"/>
-            <appender-ref ref="FILE"/>
+            <appender-ref ref="JSON_CONSOLE"/>
+            <appender-ref ref="ASYNC_JSON"/>
         </root>
-        
+
         <logger name="com.example.demo" level="INFO"/>
     </springProfile>
     

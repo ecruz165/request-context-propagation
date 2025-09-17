@@ -43,9 +43,9 @@ public class DemoSecurityConfig {
             .authorizeHttpRequests(authz -> authz
                 // Allow actuator endpoints
                 .requestMatchers("/actuator/**").permitAll()
-                // Allow public endpoints
-                .requestMatchers("/public/**", "/health", "/info").permitAll()
-                // Require authentication for all other requests
+                // Allow test endpoints for API testing
+                .requestMatchers("/api/v1/test/unprotected", "/api/test/**", "/api/request-entity/**").permitAll()
+                // Allow path variable test endpoints
                 .anyRequest().authenticated())
             
             // Add the early extraction filter BEFORE Spring Security's authentication filters

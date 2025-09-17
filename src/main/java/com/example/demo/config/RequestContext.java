@@ -80,6 +80,17 @@ public class RequestContext {
     }
 
     /**
+     * Get all values with appropriate masking applied.
+     * Returns masked values for sensitive fields, raw values for non-sensitive fields.
+     */
+    public Map<String, String> getAllValuesWithMasking() {
+        Map<String, String> result = new HashMap<>(values);
+        // Override with masked values where they exist
+        result.putAll(maskedValues);
+        return result;
+    }
+
+    /**
      * Check if context contains a key
      */
     public boolean containsKey(String key) {
@@ -113,8 +124,8 @@ public class RequestContext {
      */
     public static Optional<RequestContext> getCurrentContext() {
         RequestAttributes requestAttributes = RequestContextHolder.getRequestAttributes();
-        if (requestAttributes instanceof ServletRequestAttributes) {
-            HttpServletRequest request = ((ServletRequestAttributes) requestAttributes).getRequest();
+        if (requestAttributes instanceof ServletRequestAttributes attributes) {
+            HttpServletRequest request = attributes.getRequest();
             return getFromRequest(request);
         }
         return Optional.empty();
@@ -132,8 +143,8 @@ public class RequestContext {
         }
 
         Object context = request.getAttribute(REQUEST_CONTEXT_ATTRIBUTE);
-        if (context instanceof RequestContext) {
-            return Optional.of((RequestContext) context);
+        if (context instanceof RequestContext ctx) {
+            return Optional.of(ctx);
         }
         return Optional.empty();
     }
@@ -145,8 +156,8 @@ public class RequestContext {
      */
     public static void setCurrentContext(RequestContext context) {
         RequestAttributes requestAttributes = RequestContextHolder.getRequestAttributes();
-        if (requestAttributes instanceof ServletRequestAttributes) {
-            HttpServletRequest request = ((ServletRequestAttributes) requestAttributes).getRequest();
+        if (requestAttributes instanceof ServletRequestAttributes attributes) {
+            HttpServletRequest request = attributes.getRequest();
             setInRequest(request, context);
         }
     }
@@ -168,8 +179,8 @@ public class RequestContext {
      */
     public static void clearCurrentContext() {
         RequestAttributes requestAttributes = RequestContextHolder.getRequestAttributes();
-        if (requestAttributes instanceof ServletRequestAttributes) {
-            HttpServletRequest request = ((ServletRequestAttributes) requestAttributes).getRequest();
+        if (requestAttributes instanceof ServletRequestAttributes attributes) {
+            HttpServletRequest request = attributes.getRequest();
             clearFromRequest(request);
         }
     }

@@ -1,5 +1,6 @@
 package com.example.demo.config.props;
 
+import com.fasterxml.jackson.annotation.JsonProperty;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotNull;
 import lombok.Data;
@@ -108,11 +109,6 @@ public class RequestContextProperties {
         private String key;
 
         /**
-         * Default value if extraction returns null
-         */
-        private String defaultValue;
-
-        /**
          * URL pattern for PATH source extraction
          */
         private String pattern;
@@ -162,6 +158,11 @@ public class RequestContextProperties {
          * Whether this field is required
          */
         private boolean required = false;
+
+        /**
+         * Default value to use if extraction fails or value is absent
+         */
+        private String defaultValue;
     }
 
     /**

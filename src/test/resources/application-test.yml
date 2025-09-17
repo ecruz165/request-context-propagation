@@ -1,0 +1,315 @@
+spring:
+  jackson:
+    serialization:
+      indent-output: true
+  output:
+    ansi:
+      enabled: always
+
+logging:
+  level:
+    com.example.demo: DEBUG
+    io.restassured: WARN
+    org.apache.http: WARN
+    org.springframework.web: DEBUG
+    org.springframework.security: DEBUG
+    org.springframework.test: INFO
+    org.junit: INFO
+  pattern:
+    console: "%d{HH:mm:ss.SSS} [%thread] %-5level %logger{36} - %msg%n"
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics,prometheus
+  endpoint:
+    health:
+      show-details: always
+
+request-context:
+  enabled: true
+  debug: true
+
+  # Configuration Guide:
+  #
+  # Propagation Control:
+  # - Include 'outbound' section = Field will propagate downstream
+  # - Omit 'outbound' section = Field will NOT propagate downstream
+  # - No 'propagate: true/false' property needed
+  #
+  # Security Configuration:
+  # - sensitive: false (DEFAULT) - No masking applied, values shown as-is
+  # - sensitive: true - Apply masking using the specified pattern
+  #
+  # Masking Pattern Examples:
+  # - "***" - Simple masking (default)
+  # - "*-4" - Legacy pattern: show last 4 characters
+  # - "****-****-****-{4}" - Advanced: show last 4 characters with formatting
+  # - "{8}***" - Advanced: show first 8 characters
+  # - "{3}-***-{4}" - Advanced: show first 3 and last 4 characters
+  # - "***@***.***" - Email masking pattern
+  # - "{3}***@***.***" - Email with first 3 characters visible
+
+  fields:
+    # HEADER source fields
+    headerId1:
+      upstream:
+        inbound:
+          source: "HEADER"
+          key: "X-HEADER-ID-1"
+          # required: false is the default, no need to specify
+        outbound:
+          enrichAs: "HEADER"
+          key: "X-HEADER-ID-1"
+          # Note: Presence of outbound section means propagation is enabled
+      # security.sensitive: false is the default, no need to specify
+
+    headerId2:
+      upstream:
+        inbound:
+          source: "HEADER"
+          key: "X-HEADER-ID-2"
+        outbound:
+          enrichAs: "HEADER"
+          key: "X-HEADER-ID-2"
+
+    headerId3:
+      upstream:
+        inbound:
+          source: "HEADER"
+          key: "X-HEADER-ID-3"
+          defaultValue: "default-header-3"  # Example with default value
+        outbound:
+          enrichAs: "HEADER"
+          key: "X-HEADER-ID-3"
+
+    headerId4:
+      upstream:
+        inbound:
+          source: "HEADER"
+          key: "X-HEADER-ID-4"
+        outbound:
+          enrichAs: "HEADER"
+          key: "X-HEADER-ID-4"
+
+    headerId5:
+      upstream:
+        inbound:
+          source: "HEADER"
+          key: "X-HEADER-ID-5"
+        outbound:
+          enrichAs: "HEADER"
+          key: "X-HEADER-ID-5"
+
+    headerId6:
+      upstream:
+        inbound:
+          source: "HEADER"
+          key: "X-HEADER-ID-6"
+        outbound:
+          enrichAs: "HEADER"
+          key: "X-HEADER-ID-6"
+
+    headerId7:
+      upstream:
+        inbound:
+          source: "HEADER"
+          key: "HEADER-ID-7"
+          defaultValue: "anonymous-user"  # Example with default value
+        # Note: No outbound section = this field will NOT propagate downstream
+
+    # Example of sensitive field with custom masking pattern (propagates)
+    sensitiveHeader:
+      upstream:
+        inbound:
+          source: "HEADER"
+          key: "X-Sensitive-Data"
+          required: false
+        outbound:
+          enrichAs: "HEADER"
+          key: "X-Sensitive-Data"
+      security:
+        sensitive: true
+        masking: "*-4"  # Custom pattern: show last 4 characters
+
+    # Example of email field with email-specific masking (does NOT propagate)
+    emailHeader:
+      upstream:
+        inbound:
+          source: "HEADER"
+          key: "X-User-Email"
+          required: false
+        # Note: No outbound section = this sensitive field stays local
+      security:
+        sensitive: true
+        masking: "***@***.***"  # Email masking pattern
+
+    # QUERY source fields
+    queryId1:
+      upstream:
+        inbound:
+          source: "QUERY"
+          key: "queryId1"
+
+    queryId2:
+      upstream:
+        inbound:
+          source: "QUERY"
+          key: "queryId2"
+          defaultValue: "default-query"  # Example with default value
+
+    queryId3:
+      upstream:
+        inbound:
+          source: "QUERY"
+          key: "queryId3"
+
+    queryId4:
+      upstream:
+        inbound:
+          source: "QUERY"
+          key: "search"  # Different parameter name
+
+    queryId5:
+      upstream:
+        inbound:
+          source: "QUERY"
+          key: "filter"
+          defaultValue: "all"  # Default filter value
+
+    queryId6:
+      upstream:
+        inbound:
+          source: "QUERY"
+          key: "sensitive-param"
+      security:
+        sensitive: true
+        masking: "***"  # Mask sensitive query parameters
+
+    # PATH source fields
+    pathId1:
+      upstream:
+        inbound:
+          source: "PATH"
+          key: "pathId1"
+
+    pathId2:
+      upstream:
+        inbound:
+          source: "PATH"
+          key: "pathId2"
+          defaultValue: "unknown-path"  # Example with default value
+
+    # FORM source fields
+    formId1:
+      upstream:
+        inbound:
+          source: "FORM"
+          key: "formId1"
+
+    formId2:
+      upstream:
+        inbound:
+          source: "FORM"
+          key: "formId2"
+          defaultValue: "guest"  # Example with default value
+
+    # COOKIE source fields
+    cookieId1:
+      upstream:
+        inbound:
+          source: "COOKIE"
+          key: "cookieId1"
+
+    cookieId2:
+      upstream:
+        inbound:
+          source: "COOKIE"
+          key: "cookieId2"
+          defaultValue: "session-guest"  # Example with default value
+
+    # JWT/TOKEN source fields
+    jwtClaimId1:
+      upstream:
+        inbound:
+          source: "TOKEN"
+          key: "jwtClaimId1"
+
+    jwtClaimId2:
+      upstream:
+        inbound:
+          source: "TOKEN"
+          key: "jwtClaimId2"
+          defaultValue: "anonymous"  # Example with default value
+
+    jwtClaimId3:
+      upstream:
+        inbound:
+          source: "TOKEN"
+          key: "jwtClaimId3"
+
+    # BODY source fields
+    bodyId1:
+      upstream:
+        inbound:
+          source: "BODY"
+          key: "$.value.id"
+          defaultValue: "unknown-body-id"  # Example with default value
+
+    bodyId2:
+      upstream:
+        inbound:
+          source: "BODY"
+          key: "$.value.email"
+          required: false
+      security:
+        sensitive: true   # Sensitive field with email masking
+        masking: "***@***.***"  # Email-specific masking pattern
+
+    # Additional examples of custom masking patterns
+    creditCardField:
+      upstream:
+        inbound:
+          source: "HEADER"
+          key: "X-Credit-Card"
+          required: false
+      security:
+        sensitive: true
+        masking: "****-****-****-{4}"  # Show last 4 digits of credit card
+
+    phoneNumberField:
+      upstream:
+        inbound:
+          source: "FORM"
+          key: "phoneNumber"
+          required: false
+      security:
+        sensitive: true
+        masking: "***-***-{4}"  # Show last 4 digits of phone number
+
+    apiKeyField:
+      upstream:
+        inbound:
+          source: "HEADER"
+          key: "X-API-Key"
+          required: false
+      security:
+        sensitive: true
+        masking: "{8}***"  # Show first 8 characters, mask the rest
+
+  # Global configuration for sources (test environment)
+  sourceConfiguration:
+    token:
+      headerName: Authorization
+      prefix: "Bearer "
+      type: JWT
+      validate: false  # Disable JWT validation for testing
+    cookie:
+      httpOnly: true
+      secure: false  # Allow non-secure cookies in test
+    session:
+      attributePrefix: "context."
+    claim:
+      nestedSeparator: "."
+      arrayIndex: "[]"

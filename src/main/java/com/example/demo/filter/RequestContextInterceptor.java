@@ -35,26 +35,22 @@ public class RequestContextInterceptor implements HandlerInterceptor {
                              HttpServletResponse response,
                              Object handler) throws Exception {
 
-        // Get existing context created by filter
-        RequestContext context = RequestContext.getFromRequest(request)
-                .orElseThrow(() -> new IllegalStateException(
-                        "RequestContext not found. Ensure RequestContextFilter is configured."));
+        // Enrich with post auth data using service
+        contextService.enrichWithPostAuthPhaseData(request);
 
-        // Enrich with authenticated data using service
-        contextService.enrichWithAuthenticatedData(request, context);
+        // Get context for remaining operations
+        RequestContext context = contextService.getCurrentContext(request);
 
         // Extract and add handler information
-        if (handler instanceof HandlerMethod) {
-            HandlerMethod handlerMethod = (HandlerMethod) handler;
-
+        if (handler instanceof HandlerMethod handlerMethod) {
             String controllerName = handlerMethod.getBeanType().getSimpleName();
             String methodName = handlerMethod.getMethod().getName();
+            String apiHandler = controllerName + "/" + methodName;
 
-            // Use service to add handler TO CONTEXT
-            contextService.enrichWithHandlerInfo(context, controllerName, methodName);
+            // add apiHandler to context
+            contextService.addCustomField(context, "apiHandler", apiHandler);
 
-            log.debug("RequestContext enriched with handler: {}.{}",
-                    controllerName, methodName);
+            log.atDebug().log("RequestContext enriched with apiHandler: {}.{}", controllerName, methodName);
         }
 
         // Validate required fields if configured
@@ -66,9 +62,6 @@ public class RequestContextInterceptor implements HandlerInterceptor {
                     "Missing required context fields");
             return false;
         }
-
-        // Update MDC with complete context
-        contextService.updateMDC(context);
 
         // Enrich response headers if configured
         contextService.enrichResponseHeaders(response, context);
@@ -83,16 +76,7 @@ public class RequestContextInterceptor implements HandlerInterceptor {
                            HttpServletResponse response,
                            Object handler,
                            ModelAndView modelAndView) throws Exception {
-
-        // Get context
-        RequestContext.getFromRequest(request).ifPresent(context -> {
-            // Add response status to context
-            context.put("responseStatus", String.valueOf(response.getStatus()));
-
-            log.debug("Response status {} for handler {}",
-                    response.getStatus(),
-                    context.get("handler"));
-        });
+        // No additional operations needed after controller execution
     }
 
     @Override
@@ -101,21 +85,28 @@ public class RequestContextInterceptor implements HandlerInterceptor {
                                 Object handler,
                                 Exception ex) throws Exception {
 
-        // Get context for final logging
-        RequestContext.getFromRequest(request).ifPresent(context -> {
-            if (ex != null) {
-                // Log error with context
-                context.put("error", ex.getClass().getSimpleName());
-                context.put("errorMessage", ex.getMessage());
+        // Handle error logging and final context logging
+        if (ex != null) {
+            // Add error info to context (service handles missing context gracefully)
+            contextService.addFieldToCurrentContext(request, "error", ex.getClass().getSimpleName());
+            contextService.addFieldToCurrentContext(request, "errorMessage", ex.getMessage());
 
-                String summary = contextService.getContextSummary(context);
-                log.error("Request failed with {} - Context: {}",
-                        ex.getClass().getSimpleName(), summary, ex);
-            } else if (log.isDebugEnabled()) {
-                // Log successful completion
+            // Log error with context if available
+            contextService.getCurrentContextSafely(request).ifPresentOrElse(
+                    context -> {
+                        String summary = contextService.getContextSummary(context);
+                        log.error("Request failed with {} - Context: {}",
+                                ex.getClass().getSimpleName(), summary, ex);
+                    },
+                    () -> log.error("Request failed with {} - No context available",
+                            ex.getClass().getSimpleName(), ex)
+            );
+        } else if (log.isDebugEnabled()) {
+            // Log successful completion with context if available
+            contextService.getCurrentContextSafely(request).ifPresent(context -> {
                 String summary = contextService.getContextSummary(context);
                 log.debug("Request completed successfully - Context: {}", summary);
-            }
-        });
+            });
+        }
     }
 }

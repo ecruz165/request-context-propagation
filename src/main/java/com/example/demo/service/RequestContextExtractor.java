@@ -9,6 +9,9 @@ import com.example.demo.config.props.RequestContextProperties.InboundConfig;
 import com.example.demo.config.props.RequestContextProperties.SessionConfig;
 import com.example.demo.config.props.RequestContextProperties.TokenConfig;
 import com.example.demo.config.props.RequestContextProperties.TransformationType;
+import com.example.demo.util.CachedBodyHttpServletRequest;
+import com.jayway.jsonpath.JsonPath;
+import com.jayway.jsonpath.PathNotFoundException;
 import jakarta.servlet.http.Cookie;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpSession;
@@ -22,6 +25,8 @@ import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
 import org.springframework.web.servlet.HandlerMapping;
 
+import java.io.BufferedReader;
+import java.io.IOException;
 import java.net.URLDecoder;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
@@ -376,13 +381,74 @@ public class RequestContextExtractor {
     }
 
     /**
-     * Extract from request body (for JSON content type)
+     * Extract from request body using JSONPath expressions
      */
     private String extractFromBody(HttpServletRequest request, InboundConfig config) {
-        // This would require reading and parsing the request body
-        // Implementation depends on content type and body structure
-        log.debug("Body extraction not implemented");
+        try {
+            String contentType = request.getContentType();
+            if (contentType == null || !contentType.contains("application/json")) {
+                log.debug("Body extraction skipped - content type is not JSON: {}", contentType);
+                return null;
+            }
+
+            // Get the request body from cached wrapper
+            String requestBody = getRequestBody(request);
+            if (requestBody == null || requestBody.trim().isEmpty()) {
+                log.debug("Body extraction skipped - request body is empty");
+                return null;
+            }
+
+            // Extract value using JSONPath
+            String jsonPath = config.getKey();
+            if (jsonPath == null || jsonPath.trim().isEmpty()) {
+                log.debug("Body extraction skipped - JSONPath key is empty");
+                return null;
+            }
+
+            try {
+                Object value = JsonPath.read(requestBody, jsonPath);
+                if (value != null) {
+                    String extractedValue = value.toString();
+                    log.debug("Extracted value from body using JSONPath '{}': {}", jsonPath, extractedValue);
+                    return extractedValue;
+                }
+            } catch (PathNotFoundException e) {
+                log.debug("JSONPath '{}' not found in request body", jsonPath);
+            } catch (Exception e) {
+                log.warn("Error extracting value from body using JSONPath '{}': {}", jsonPath, e.getMessage());
+            }
+
+        } catch (Exception e) {
+            log.warn("Error reading request body for extraction: {}", e.getMessage());
+        }
+
         return null;
+    }
+
+    /**
+     * Get the request body as a string, using cached body if available
+     */
+    private String getRequestBody(HttpServletRequest request) {
+        // If this is a cached body request, use the cached body
+        if (request instanceof CachedBodyHttpServletRequest) {
+            return ((CachedBodyHttpServletRequest) request).getCachedBody();
+        }
+
+        // Fallback to reading directly (may cause issues with Spring's body processing)
+        try {
+            StringBuilder stringBuilder = new StringBuilder();
+            BufferedReader bufferedReader = request.getReader();
+
+            String line;
+            while ((line = bufferedReader.readLine()) != null) {
+                stringBuilder.append(line);
+            }
+
+            return stringBuilder.toString();
+        } catch (IOException e) {
+            log.warn("Error reading request body: {}", e.getMessage());
+            return null;
+        }
     }
 
     /**

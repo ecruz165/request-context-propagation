@@ -15,16 +15,15 @@ request-context:
         inbound:
           source: CLAIM
           key: sub
-          default: anonymous
+          defaultValue: anonymous
         outbound:
           enrichAs: HEADER
           key: X-User-Id
-          valueAs: STRING
+          # valueAs: STRING is the default, no need to specify
       downstream:
         outbound:
           enrichAs: HEADER
           key: X-User-Id
-          valueAs: STRING
       observability:
         metrics:
           cardinality: LOW
@@ -51,14 +50,12 @@ request-context:
         outbound:
           enrichAs: HEADER
           key: X-Application-Id
-          valueAs: STRING
       observability:
         metrics:
           cardinality: HIGH
         logging:
           enabled: true
-      security:
-        sensitive: false
+      # security.sensitive: false is the default, no need to specify
 
     clientId:
       upstream:
@@ -72,14 +69,12 @@ request-context:
         outbound:
           enrichAs: HEADER
           key: X-Client-Id
-          valueAs: STRING
       observability:
         metrics:
           cardinality: HIGH
         logging:
           enabled: true
-      security:
-        sensitive: false
+      # security.sensitive: false is the default, no need to specify
 
     sessionId:
       upstream:
@@ -93,7 +88,6 @@ request-context:
         outbound:
           enrichAs: HEADER
           key: X-Session-Id
-          valueAs: STRING
       observability:
         metrics:
           cardinality: HIGH
@@ -113,14 +107,12 @@ request-context:
         outbound:
           enrichAs: HEADER
           key: X-Tenant-Id
-          valueAs: STRING
       observability:
         metrics:
           cardinality: LOW
         logging:
           enabled: true
-      security:
-        sensitive: false
+      # security.sensitive: false is the default, no need to specify
 
     apiKey:
       upstream:
@@ -134,12 +126,10 @@ request-context:
         outbound:
           enrichAs: HEADER
           key: X-API-Key
-          valueAs: STRING
       observability:
         metrics:
           cardinality: MEDIUM
-        logging:
-          enabled: false
+        # logging.enabled: false is the default, no need to specify
       security:
         sensitive: true
         masking: "***"
@@ -163,8 +153,7 @@ request-context:
           cardinality: LOW
         logging:
           enabled: true
-      security:
-        sensitive: false
+      # security.sensitive: false is the default, no need to specify
 
     requestId:
       upstream:
@@ -177,14 +166,12 @@ request-context:
         outbound:
           enrichAs: HEADER
           key: X-Request-Id
-          valueAs: STRING
       observability:
         metrics:
           cardinality: HIGH
         logging:
           enabled: true
-      security:
-        sensitive: false
+      # security.sensitive: false is the default, no need to specify
 
     userEmail:
       upstream:
@@ -199,7 +186,6 @@ request-context:
         outbound:
           enrichAs: HEADER
           key: X-User-Email
-          valueAs: STRING
       observability:
         metrics:
           cardinality: HIGH
@@ -219,8 +205,7 @@ request-context:
           cardinality: HIGH
         logging:
           enabled: true
-      security:
-        sensitive: false
+      # security.sensitive: false is the default, no need to specify
 
     rateLimit:
       downstream:
@@ -230,10 +215,8 @@ request-context:
       observability:
         metrics:
           cardinality: NONE
-        logging:
-          enabled: false
-      security:
-        sensitive: false
+        # logging.enabled: false is the default, no need to specify
+      # security.sensitive: false is the default, no need to specify
 
   # Global configuration for sources
   sourceConfiguration:

@@ -2,18 +2,14 @@ package com.example.demo.filter;
 
 
 import com.example.demo.config.RequestContext;
-import com.example.demo.config.props.RequestContextProperties;
-import com.example.demo.config.props.RequestContextProperties.FieldConfiguration;
-import com.example.demo.config.props.RequestContextProperties.OutboundConfig;
+import com.example.demo.service.RequestContextEnricher;
+import com.example.demo.service.RequestContextEnricher.PropagationData;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 import org.springframework.web.reactive.function.client.ClientRequest;
 import org.springframework.web.reactive.function.client.ExchangeFilterFunction;
 import reactor.core.publisher.Mono;
 
-import java.net.URLEncoder;
-import java.nio.charset.StandardCharsets;
-import java.util.Base64;
 import java.util.Map;
 import java.util.Optional;
 
@@ -27,12 +23,12 @@ import java.util.Optional;
 @Slf4j
 public class RequestContextPropagationWebClientFilter {
 
-    private final RequestContextProperties properties;
+    private final RequestContextEnricher enricher;
     private static final String DEFAULT_REQUEST_ID_HEADER = "X-Request-Id";
     private static final String DEFAULT_CORRELATION_ID_HEADER = "X-Correlation-Id";
 
-    public RequestContextPropagationWebClientFilter(RequestContextProperties properties) {
-        this.properties = properties;
+    public RequestContextPropagationWebClientFilter(RequestContextEnricher enricher) {
+        this.enricher = enricher;
     }
 
     /**
@@ -63,8 +59,13 @@ public class RequestContextPropagationWebClientFilter {
         // Always propagate core tracing headers
         propagateCoreHeaders(context, requestBuilder);
 
-        // Propagate configured fields
-        propagateConfiguredFields(context, requestBuilder);
+        // Use enricher to get propagation data
+        Map<String, PropagationData> propagationData = enricher.extractForDownstreamPropagation(context);
+
+        // Apply propagation data to request
+        propagationData.forEach((fieldName, data) -> {
+            applyPropagationData(requestBuilder, data, fieldName);
+        });
 
         ClientRequest modifiedRequest = requestBuilder.build();
 
@@ -94,232 +95,49 @@ public class RequestContextPropagationWebClientFilter {
     }
 
     /**
-     * Propagates fields configured in properties
+     * Apply propagation data to the request builder
      */
-    private void propagateConfiguredFields(RequestContext context, ClientRequest.Builder requestBuilder) {
-        properties.getFields().forEach((fieldName, fieldConfig) -> {
-            try {
-                propagateField(fieldName, fieldConfig, context, requestBuilder);
-            } catch (Exception e) {
-                log.error("Error propagating field {}: {}", fieldName, e.getMessage());
-            }
-        });
-    }
-
-    /**
-     * Propagates a single field if configured for downstream
-     */
-    private void propagateField(String fieldName,
-                                FieldConfiguration fieldConfig,
-                                RequestContext context,
-                                ClientRequest.Builder requestBuilder) {
-
-        // Check if field should be propagated downstream
-        if (fieldConfig.getDownstream() == null ||
-                fieldConfig.getDownstream().getOutbound() == null) {
-            return;
-        }
-
-        OutboundConfig outbound = fieldConfig.getDownstream().getOutbound();
-
-        // Get value from context
-        String value = getValue(fieldName, context, outbound);
-
-        if (value == null || value.isEmpty()) {
-            if (log.isTraceEnabled()) {
-                log.trace("Field {} has no value to propagate", fieldName);
-            }
-            return;
-        }
-
-        // Check condition if configured
-        if (!shouldEnrich(context, outbound)) {
-            log.debug("Skipping field {} due to condition: {}", fieldName, outbound.getCondition());
-            return;
-        }
-
-        // Enrich the request
-        enrichRequest(requestBuilder, outbound, value, fieldName);
-    }
-
-    /**
-     * Gets the value to propagate, applying transformations if configured
-     */
-    private String getValue(String fieldName, RequestContext context, OutboundConfig outbound) {
-        String value;
-
-        // Use expression if configured
-        if (outbound.getValueAs() == RequestContextProperties.ValueType.EXPRESSION &&
-                outbound.getValue() != null) {
-            // Simple expression evaluation
-            value = evaluateExpression(outbound.getValue(), context);
-        } else {
-            // Get value directly from context
-            value = context.get(fieldName);
-        }
-
-        // Apply value type transformation
-        if (value != null && outbound.getValueAs() != null) {
-            value = transformValue(value, outbound.getValueAs());
-        }
-
-        return value;
-    }
-
-    /**
-     * Checks if enrichment should happen based on condition
-     */
-    private boolean shouldEnrich(RequestContext context, OutboundConfig outbound) {
-        if (outbound.getCondition() == null) {
-            return true;
-        }
-
-        // Simple condition evaluation
-        // For complex conditions, integrate SpEL
-        return evaluateCondition(outbound.getCondition(), context);
-    }
-
-    /**
-     * Enriches the request based on enrichment type
-     */
-    private void enrichRequest(ClientRequest.Builder requestBuilder,
-                               OutboundConfig outbound,
-                               String value,
-                               String fieldName) {
-
+    private void applyPropagationData(ClientRequest.Builder requestBuilder, PropagationData data, String fieldName) {
         try {
-            switch (outbound.getEnrichAs()) {
+            switch (data.getEnrichmentType()) {
                 case HEADER:
-                    requestBuilder.header(outbound.getKey(), value);
+                    requestBuilder.header(data.getKey(), data.getValue());
                     log.debug("Added downstream header {} = {} for field {}",
-                            outbound.getKey(),
-                            maskSensitiveValue(outbound.getKey(), value),
-                            fieldName);
+                            data.getKey(), data.getMaskedValue(), fieldName);
                     break;
 
                 case QUERY:
                     // Note: Query parameters need special handling in WebClient
-                    // This is a simplified approach
-                    requestBuilder.attribute("queryParam." + outbound.getKey(), value);
+                    requestBuilder.attribute("queryParam." + data.getKey(), data.getValue());
                     log.debug("Added query parameter {} = {} for field {}",
-                            outbound.getKey(), value, fieldName);
+                            data.getKey(), data.getValue(), fieldName);
                     break;
 
                 case COOKIE:
-                    requestBuilder.cookie(outbound.getKey(), value);
-                    log.debug("Added cookie {} for field {}", outbound.getKey(), fieldName);
+                    requestBuilder.cookie(data.getKey(), data.getValue());
+                    log.debug("Added cookie {} for field {}", data.getKey(), fieldName);
                     break;
 
                 case ATTRIBUTE:
-                    requestBuilder.attribute(outbound.getKey(), value);
+                    requestBuilder.attribute(data.getKey(), data.getValue());
                     log.debug("Added request attribute {} = {} for field {}",
-                            outbound.getKey(), value, fieldName);
+                            data.getKey(), data.getValue(), fieldName);
                     break;
 
                 default:
                     log.debug("Unsupported enrichment type {} for field {}",
-                            outbound.getEnrichAs(), fieldName);
+                            data.getEnrichmentType(), fieldName);
             }
         } catch (Exception e) {
-            log.error("Failed to enrich request with field {}: {}", fieldName, e.getMessage());
+            log.error("Failed to apply propagation data for field {}: {}", fieldName, e.getMessage());
         }
     }
 
-    /**
-     * Masks sensitive header values for logging
-     */
-    private String maskSensitiveValue(String headerName, String value) {
-        String lowerName = headerName.toLowerCase();
-        if (lowerName.contains("token") ||
-                lowerName.contains("key") ||
-                lowerName.contains("secret") ||
-                lowerName.contains("password")) {
-            return "***";
-        }
-        return value;
-    }
 
-    /**
-     * Transforms value based on type
-     */
-    private String transformValue(String value, RequestContextProperties.ValueType valueType) {
-        if (value == null) {
-            return null;
-        }
 
-        try {
-            switch (valueType) {
-                case BASE64:
-                    return Base64.getEncoder().encodeToString(value.getBytes(StandardCharsets.UTF_8));
 
-                case URL_ENCODED:
-                    return URLEncoder.encode(value, StandardCharsets.UTF_8);
 
-                case JSON_ARRAY:
-                    // Simple JSON array for single value
-                    return "[\"" + value + "\"]";
 
-                case JSON_OBJECT:
-                    // Simple JSON object
-                    return "{\"value\":\"" + value + "\"}";
 
-                case NUMBER:
-                    // Validate it's a number
-                    try {
-                        Double.parseDouble(value);
-                        return value;
-                    } catch (NumberFormatException e) {
-                        log.warn("Value {} is not a valid number", value);
-                        return null;
-                    }
 
-                case BOOLEAN:
-                    // Convert to boolean string
-                    return Boolean.parseBoolean(value) ? "true" : "false";
-
-                case STRING:
-                default:
-                    return value;
-            }
-        } catch (Exception e) {
-            log.error("Error transforming value: {}", e.getMessage());
-            return value;
-        }
-    }
-
-    /**
-     * Simple expression evaluation
-     */
-    private String evaluateExpression(String expression, RequestContext context) {
-        // Simple placeholder replacement
-        // For complex expressions, use SpEL
-        String result = expression;
-
-        for (Map.Entry<String, String> entry : context.getAllValues().entrySet()) {
-            String placeholder = "#" + entry.getKey();
-            if (result.contains(placeholder)) {
-                result = result.replace(placeholder, entry.getValue());
-            }
-        }
-
-        return result;
-    }
-
-    /**
-     * Simple condition evaluation
-     */
-    private boolean evaluateCondition(String condition, RequestContext context) {
-        // Simple implementation - always true
-        // For complex conditions, integrate SpEL
-        return true;
-    }
-
-    /**
-     * Checks if header already exists
-     */
-    private boolean hasHeader(ClientRequest.Builder builder, String headerName) {
-        // This is a simplified check
-        // In reality, you'd need to check the actual headers in the builder
-        return false;
-    }
 }
