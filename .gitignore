@@ -57,4 +57,50 @@ node_modules/
 
 # Task files
 tasks.json
-tasks/ 
+tasks/
+
+# AI-related files and folders
+.claude/
+.taskmaster/
+.mcp.json
+.env.example
+CLAUDE.md
+TEST_STATUS.md
+
+# AI conversation and context files
+*.ai
+*.claude
+*.gpt
+*.openai
+*.anthropic
+conversation-*.md
+context-*.md
+ai-*.md
+
+# AI model and training files
+*.model
+*.weights
+*.checkpoint
+*.ckpt
+*.pkl
+*.joblib
+*.h5
+*.pb
+*.onnx
+*.tflite
+
+# AI configuration and API keys
+.openai/
+.anthropic/
+.huggingface/
+ai-config.json
+ai-settings.json
+api-keys.json
+secrets.json
+
+# AI-generated content
+generated/
+ai-output/
+ai-responses/
+prompts/
+completions/
