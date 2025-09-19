@@ -1,7 +1,6 @@
 package com.example.demo.filter;
 
 import com.example.demo.config.RequestContext;
-import com.example.demo.config.props.RequestContextProperties;
 import com.example.demo.service.RequestContextService;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
@@ -17,11 +16,11 @@ import java.util.Optional;
  */
 @Component
 @Slf4j
-public class RequestContextCaptureWebClientFilter {
+public class RequestContextWebClientCaptureFilter {
 
     private final RequestContextService contextService;
 
-    public RequestContextCaptureWebClientFilter(RequestContextService contextService) {
+    public RequestContextWebClientCaptureFilter(RequestContextService contextService) {
         this.contextService = contextService;
     }
 
@@ -66,8 +65,8 @@ public class RequestContextCaptureWebClientFilter {
             RequestContextService contextService,
             String... headerNames) {
 
-        RequestContextCaptureWebClientFilter filter =
-                new RequestContextCaptureWebClientFilter(contextService);
+        RequestContextWebClientCaptureFilter filter =
+                new RequestContextWebClientCaptureFilter(contextService);
 
         return ExchangeFilterFunction.ofResponseProcessor(response -> {
             // Only process if response contains one of the specified headers

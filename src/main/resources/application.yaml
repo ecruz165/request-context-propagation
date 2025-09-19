@@ -2,6 +2,15 @@ spring:
   application:
     name: demo
 
+# Downstream service configuration
+downstream:
+  service:
+    url: ${DOWNSTREAM_SERVICE_URL:http://localhost:8081}
+    timeout: 30s
+    retry:
+      max-attempts: 3
+      backoff-delay: 1s
+
 request-context:
   filter-config:
     order: -2147483647  # Highest precedence + 1
@@ -28,7 +37,9 @@ request-context:
         metrics:
           cardinality: LOW
         logging:
-          enabled: true
+          mdcKey: "principal.userId"
+        tracing:
+          tagName: "principal.userId"
       security:
         sensitive: true
         masking: "***"
@@ -54,7 +65,9 @@ request-context:
         metrics:
           cardinality: HIGH
         logging:
-          enabled: true
+          mdcKey: "app.applicationId"
+        tracing:
+          tagName: "app.applicationId"
       # security.sensitive: false is the default, no need to specify
 
     clientId:
@@ -73,7 +86,9 @@ request-context:
         metrics:
           cardinality: HIGH
         logging:
-          enabled: true
+          mdcKey: "app.clientId"
+        tracing:
+          tagName: "app.clientId"
       # security.sensitive: false is the default, no need to specify
 
     sessionId:
@@ -92,7 +107,9 @@ request-context:
         metrics:
           cardinality: HIGH
         logging:
-          enabled: true
+          mdcKey: "session.sessionId"
+        tracing:
+          tagName: "session.sessionId"
       security:
         sensitive: true
         masking: "***"
@@ -111,7 +128,9 @@ request-context:
         metrics:
           cardinality: LOW
         logging:
-          enabled: true
+          mdcKey: "org.tenantId"
+        tracing:
+          tagName: "org.tenantId"
       # security.sensitive: false is the default, no need to specify
 
     apiKey:
@@ -129,7 +148,10 @@ request-context:
       observability:
         metrics:
           cardinality: MEDIUM
-        # logging.enabled: false is the default, no need to specify
+          tagName: "security.apiKey"
+        tracing:
+          tagName: "security.apiKey"
+        # logging not configured = not included in logs
       security:
         sensitive: true
         masking: "***"
@@ -152,7 +174,9 @@ request-context:
         metrics:
           cardinality: LOW
         logging:
-          enabled: true
+          mdcKey: "principal.role"
+        tracing:
+          tagName: "principal.role"
       # security.sensitive: false is the default, no need to specify
 
     requestId:
@@ -170,7 +194,9 @@ request-context:
         metrics:
           cardinality: HIGH
         logging:
-          enabled: true
+          mdcKey: "request.id"
+        tracing:
+          tagName: "request.id"
       # security.sensitive: false is the default, no need to specify
 
     userEmail:
@@ -190,7 +216,9 @@ request-context:
         metrics:
           cardinality: HIGH
         logging:
-          enabled: true
+          mdcKey: "principal.email"
+        tracing:
+          tagName: "principal.email"
       security:
         sensitive: true
         masking: "***@***.***"
@@ -204,7 +232,9 @@ request-context:
         metrics:
           cardinality: HIGH
         logging:
-          enabled: true
+          mdcKey: "business.transactionId"
+        tracing:
+          tagName: "business.transactionId"
       # security.sensitive: false is the default, no need to specify
 
     rateLimit:
@@ -217,6 +247,17 @@ request-context:
           cardinality: NONE
         # logging.enabled: false is the default, no need to specify
       # security.sensitive: false is the default, no need to specify
+
+    # Test field with no defaults, fallbacks, or generation - should be null when not present
+    testFieldNoDefaults:
+      upstream:
+        inbound:
+          source: HEADER
+          key: X-Test-No-Defaults
+      observability:
+        metrics:
+          cardinality: NONE
+      # No defaultValue, fallback, or generateIfAbsent configured
 
   # Global configuration for sources
   sourceConfiguration:

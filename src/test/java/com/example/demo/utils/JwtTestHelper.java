@@ -1,139 +1,117 @@
 package com.example.demo.utils;
 
-import com.nimbusds.jose.*;
+import com.nimbusds.jose.JOSEException;
+import com.nimbusds.jose.JWSAlgorithm;
+import com.nimbusds.jose.JWSHeader;
+import com.nimbusds.jose.JWSSigner;
 import com.nimbusds.jose.crypto.MACSigner;
 import com.nimbusds.jwt.JWTClaimsSet;
 import com.nimbusds.jwt.SignedJWT;
+import org.springframework.stereotype.Component;
 
+import java.time.Instant;
+import java.time.temporal.ChronoUnit;
 import java.util.Date;
+import java.util.HashMap;
 import java.util.Map;
-import java.util.UUID;
 
+/**
+ * Helper utility for creating JWT tokens in tests
+ * Supports creating tokens with custom claims for testing JWT claim extraction
+ */
+@Component
 public class JwtTestHelper {
 
-    private static final String SECRET = "test-secret-key-for-jwt-signing-must-be-at-least-256-bits";
+    private final byte[] secretKey;
 
-    public static String generateJwt() {
-        return generateJwt(Map.of());
+    public JwtTestHelper() {
+        // Generate a test key for JWT signing (256-bit key for HS256)
+        this.secretKey = "test-secret-key-for-jwt-signing-must-be-256-bits".getBytes();
     }
 
-    public static String generateJwt(Map<String, Object> customClaims) {
-        return generateJwt("test-user", "USER", customClaims);
+    /**
+     * Create a new JWT token builder
+     */
+    public JwtTokenBuilder createJwtToken() {
+        return new JwtTokenBuilder(secretKey);
     }
 
-    public static String generateJwt(String subject, String role, Map<String, Object> customClaims) {
-        try {
-            // Build JWT claims
-            JWTClaimsSet.Builder claimsBuilder = new JWTClaimsSet.Builder()
-                .subject(subject)
-                .issuer("test-issuer")
-                .audience("test-audience")
-                .jwtID(UUID.randomUUID().toString())
-                .issueTime(new Date())
-                .expirationTime(new Date(System.currentTimeMillis() + 3600000)) // 1 hour
-                .claim("scope", "read write")
-                .claim("role", role)
-                .claim("tenant_id", "test-tenant")
-                .claim("user_id", "user-123")
-                .claim("email", subject + "@example.com");
+    /**
+     * Builder class for creating JWT tokens with custom claims
+     */
+    public static class JwtTokenBuilder {
+        private final byte[] secretKey;
+        private String subject;
+        private final Map<String, Object> claims = new HashMap<>();
+        private Instant expiration = Instant.now().plus(1, ChronoUnit.HOURS);
 
-            // Add custom claims
-            customClaims.forEach(claimsBuilder::claim);
+        public JwtTokenBuilder(byte[] secretKey) {
+            this.secretKey = secretKey;
+        }
 
-            // Add nested claims for testing
-            claimsBuilder.claim("user", Map.of(
-                "id", "user-123",
-                "name", subject,
-                "department", "Engineering",
-                "permissions", new String[]{"READ", "WRITE"}
-            ));
+        /**
+         * Set the subject (sub) claim
+         */
+        public JwtTokenBuilder withSubject(String subject) {
+            this.subject = subject;
+            return this;
+        }
 
-            claimsBuilder.claim("context", Map.of(
-                "request_id", UUID.randomUUID().toString(),
-                "session_id", "session-" + System.currentTimeMillis(),
-                "environment", "test"
-            ));
+        /**
+         * Add a custom claim
+         */
+        public JwtTokenBuilder withClaim(String key, Object value) {
+            this.claims.put(key, value);
+            return this;
+        }
 
-            JWTClaimsSet claimsSet = claimsBuilder.build();
+        /**
+         * Set expiration time
+         */
+        public JwtTokenBuilder withExpiration(Instant expiration) {
+            this.expiration = expiration;
+            return this;
+        }
 
-            // Create signed JWT
-            JWSHeader header = new JWSHeader.Builder(JWSAlgorithm.HS256)
-                .type(JOSEObjectType.JWT)
-                .build();
+        /**
+         * Build the JWT token
+         */
+        public String build() {
+            try {
+                // Create JWT claims set
+                JWTClaimsSet.Builder claimsBuilder = new JWTClaimsSet.Builder()
+                        .subject(subject)
+                        .issueTime(Date.from(Instant.now()))
+                        .expirationTime(Date.from(expiration));
 
-            SignedJWT signedJWT = new SignedJWT(header, claimsSet);
-            JWSSigner signer = new MACSigner(SECRET.getBytes());
-            signedJWT.sign(signer);
+                // Add custom claims
+                for (Map.Entry<String, Object> entry : claims.entrySet()) {
+                    claimsBuilder.claim(entry.getKey(), entry.getValue());
+                }
 
-            return signedJWT.serialize();
-        } catch (Exception e) {
-            throw new RuntimeException("Failed to generate JWT", e);
+                JWTClaimsSet claimsSet = claimsBuilder.build();
+
+                // Create signed JWT
+                SignedJWT signedJWT = new SignedJWT(
+                        new JWSHeader(JWSAlgorithm.HS256),
+                        claimsSet
+                );
+
+                // Sign the JWT
+                JWSSigner signer = new MACSigner(secretKey);
+                signedJWT.sign(signer);
+
+                return signedJWT.serialize();
+            } catch (JOSEException e) {
+                throw new RuntimeException("Failed to create JWT token", e);
+            }
         }
     }
 
-    public static String generateExpiredJwt() {
-        try {
-            JWTClaimsSet claimsSet = new JWTClaimsSet.Builder()
-                .subject("test-user")
-                .issuer("test-issuer")
-                .issueTime(new Date(System.currentTimeMillis() - 7200000)) // 2 hours ago
-                .expirationTime(new Date(System.currentTimeMillis() - 3600000)) // 1 hour ago
-                .build();
-
-            JWSHeader header = new JWSHeader.Builder(JWSAlgorithm.HS256).build();
-            SignedJWT signedJWT = new SignedJWT(header, claimsSet);
-            JWSSigner signer = new MACSigner(SECRET.getBytes());
-            signedJWT.sign(signer);
-
-            return signedJWT.serialize();
-        } catch (Exception e) {
-            throw new RuntimeException("Failed to generate expired JWT", e);
-        }
-    }
-
-    public static String generateMalformedJwt() {
-        return "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.invalid.signature";
-    }
-
-    public static String generateUnsignedJwt() {
-        try {
-            JWTClaimsSet claimsSet = new JWTClaimsSet.Builder()
-                .subject("test-user")
-                .issuer("test-issuer")
-                .issueTime(new Date())
-                .build();
-
-            JWSHeader header = new JWSHeader.Builder(JWSAlgorithm.HS256).build();
-            SignedJWT signedJWT = new SignedJWT(header, claimsSet);
-
-            // Return without signing
-            return signedJWT.serialize().split("\\.")[0] + "." + 
-                   signedJWT.serialize().split("\\.")[1] + ".";
-        } catch (Exception e) {
-            throw new RuntimeException("Failed to generate unsigned JWT", e);
-        }
-    }
-
-    public static String generateJwtWithDeepClaims() {
-        Map<String, Object> deepClaims = Map.of(
-            "level1", Map.of(
-                "level2", Map.of(
-                    "level3", Map.of(
-                        "value", "deep-value",
-                        "array", new String[]{"item1", "item2", "item3"}
-                    )
-                )
-            ),
-            "metadata", Map.of(
-                "timestamp", System.currentTimeMillis(),
-                "version", "1.0.0",
-                "flags", Map.of(
-                    "feature_a", true,
-                    "feature_b", false
-                )
-            )
-        );
-
-        return generateJwt(deepClaims);
+    /**
+     * Get the secret key used for signing (for verification in tests)
+     */
+    public byte[] getSecretKey() {
+        return secretKey;
     }
 }

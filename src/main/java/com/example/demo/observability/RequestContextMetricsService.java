@@ -1,15 +1,14 @@
 package com.example.demo.observability;
 
 import com.example.demo.config.RequestContext;
-import com.example.demo.config.props.RequestContextProperties;
 import com.example.demo.config.props.RequestContextProperties.CardinalityLevel;
-import com.example.demo.config.props.RequestContextProperties.FieldConfiguration;
-import com.example.demo.config.props.RequestContextProperties.MetricsConfig;
+import com.example.demo.service.RequestContextService;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 
 /**
  * Service to record custom metrics with RequestContext
@@ -19,13 +18,13 @@ import java.util.List;
 public class RequestContextMetricsService {
 
     private final io.micrometer.core.instrument.MeterRegistry meterRegistry;
-    private final RequestContextProperties properties;
+    private final RequestContextService requestContextService;
 
     public RequestContextMetricsService(
             io.micrometer.core.instrument.MeterRegistry meterRegistry,
-            RequestContextProperties properties) {
+            RequestContextService requestContextService) {
         this.meterRegistry = meterRegistry;
-        this.properties = properties;
+        this.requestContextService = requestContextService;
     }
 
     /**
@@ -33,7 +32,7 @@ public class RequestContextMetricsService {
      */
     public void recordMetric(String metricName, double value) {
         RequestContext.getCurrentContext().ifPresent(context -> {
-            List<io.micrometer.core.instrument.Tag> tags = buildTags(context);
+            List<io.micrometer.core.instrument.Tag> tags = buildTags(context, CardinalityLevel.LOW);
             meterRegistry.counter(metricName, tags).increment(value);
         });
     }
@@ -43,7 +42,7 @@ public class RequestContextMetricsService {
      */
     public void recordTiming(String metricName, long milliseconds) {
         RequestContext.getCurrentContext().ifPresent(context -> {
-            List<io.micrometer.core.instrument.Tag> tags = buildTags(context);
+            List<io.micrometer.core.instrument.Tag> tags = buildTags(context, CardinalityLevel.LOW);
             meterRegistry.timer(metricName, tags)
                     .record(java.time.Duration.ofMillis(milliseconds));
         });
@@ -52,46 +51,17 @@ public class RequestContextMetricsService {
     /**
      * Build tags from RequestContext based on configuration
      */
-    private List<io.micrometer.core.instrument.Tag> buildTags(RequestContext context) {
+    private List<io.micrometer.core.instrument.Tag> buildTags(RequestContext context, CardinalityLevel level) {
         List<io.micrometer.core.instrument.Tag> tags = new ArrayList<>();
 
-        properties.getFields().forEach((fieldName, fieldConfig) -> {
-            if (shouldIncludeInMetrics(fieldConfig)) {
-                String value = context.get(fieldName);
-                if (value != null) {
-                    // Use masked value for sensitive fields
-                    if (isSensitive(fieldConfig)) {
-                        value = context.getMaskedOrOriginal(fieldName);
-                    }
-                    tags.add(io.micrometer.core.instrument.Tag.of(fieldName, value));
-                }
-            }
-        });
+        // Get metrics fields for the specified cardinality level
+        Map<String, String> metricsFields = requestContextService.getMetricsFields(context, level);
 
-        // Always add handler if available
-        String handler = context.get("handler");
-        if (handler != null) {
-            tags.add(io.micrometer.core.instrument.Tag.of("handler", handler));
-        }
+        // Convert to Micrometer tags
+        metricsFields.forEach((tagName, value) ->
+            tags.add(io.micrometer.core.instrument.Tag.of(tagName, value))
+        );
 
         return tags;
-    }
-
-    private boolean shouldIncludeInMetrics(FieldConfiguration fieldConfig) {
-        if (fieldConfig.getObservability() == null ||
-                fieldConfig.getObservability().getMetrics() == null) {
-            return false;
-        }
-
-        MetricsConfig metricsConfig = fieldConfig.getObservability().getMetrics();
-        CardinalityLevel cardinality = metricsConfig.getCardinality();
-
-        // Only include low and medium cardinality fields
-        return metricsConfig.isEnabled() &&
-                (cardinality == CardinalityLevel.LOW || cardinality == CardinalityLevel.MEDIUM);
-    }
-
-    private boolean isSensitive(FieldConfiguration fieldConfig) {
-        return fieldConfig.getSecurity() != null && fieldConfig.getSecurity().isSensitive();
     }
 }

@@ -1,6 +1,5 @@
 package com.example.demo.config.props;
 
-import com.fasterxml.jackson.annotation.JsonProperty;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotNull;
 import lombok.Data;
@@ -244,6 +243,11 @@ public class RequestContextProperties {
         private boolean enabled = false;
 
         /**
+         * Custom metric tag name (defaults to field name)
+         */
+        private String tagName;
+
+        /**
          * Custom metric name
          */
         private String metricName;
@@ -273,6 +277,13 @@ public class RequestContextProperties {
          * Log level for this field
          */
         private LogLevel level = LogLevel.INFO;
+
+        /**
+         * Whether to use nested JSON structure for logs with dot notation
+         * When true, "principal.userId" becomes nested: {"principal": {"userId": "value"}}
+         * When false, creates flat field: "principal.userId" = "value"
+         */
+        private boolean useNestedJson = true;
     }
 
     /**
@@ -289,6 +300,13 @@ public class RequestContextProperties {
          * Span tag name (defaults to field name)
          */
         private String tagName;
+
+        /**
+         * Whether to use nested JSON structure for tags with dot notation
+         * When true, "principal.userId" becomes nested: {"principal": {"userId": "value"}}
+         * When false, creates flat tag: "principal.userId" = "value"
+         */
+        private boolean useNestedTags = true;
     }
 
     /**
@@ -643,23 +661,21 @@ public class RequestContextProperties {
     public enum SourceType {
         HEADER,     // HTTP headers
         TOKEN,      // JWT or other tokens
-        COOKIE,     // HTTP cookies
         QUERY,      // Query parameters
         PATH,       // Path variables
-        SESSION,    // HTTP session
-        ATTRIBUTE,  // Request attributes
         CLAIM,      // Direct JWT claim
         BODY,       // Request body (JSON path)
-        FORM        // Form data
+        FORM,       // Form data
+        COOKIE,     // HTTP cookies
+        SESSION,    // HTTP session
+        ATTRIBUTE   // Request attribute
     }
 
     public enum EnrichmentType {
         HEADER,     // HTTP header
         QUERY,      // Query parameter
         COOKIE,     // Cookie
-        PATH,       // Path parameter
-        ATTRIBUTE,  // Request attribute
-        BODY        // Request body
+        SESSION     // HTTP session attribute
     }
 
     public enum ValueType {

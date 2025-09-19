@@ -5,22 +5,35 @@ import com.example.demo.config.props.RequestContextProperties;
 import com.example.demo.config.props.RequestContextProperties.CardinalityLevel;
 import com.example.demo.config.props.RequestContextProperties.EnrichmentType;
 import com.example.demo.config.props.RequestContextProperties.FieldConfiguration;
+import com.example.demo.config.props.RequestContextProperties.LogLevel;
+import com.example.demo.config.props.RequestContextProperties.LoggingConfig;
 import com.example.demo.config.props.RequestContextProperties.MetricsConfig;
 import com.example.demo.config.props.RequestContextProperties.OutboundConfig;
 import com.example.demo.config.props.RequestContextProperties.SourceType;
+import com.example.demo.config.props.RequestContextProperties.TracingConfig;
+import com.example.demo.service.source.SourceHandlers;
+import com.example.demo.util.MaskingHelper;
+import com.fasterxml.jackson.databind.JsonNode;
+import jakarta.annotation.PostConstruct;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import lombok.extern.slf4j.Slf4j;
 import org.slf4j.MDC;
 import org.springframework.stereotype.Service;
+import org.springframework.util.AntPathMatcher;
+import org.springframework.web.context.request.RequestContextHolder;
+import org.springframework.web.context.request.ServletRequestAttributes;
 import org.springframework.web.reactive.function.client.ClientResponse;
 
 import java.util.ArrayList;
+import java.util.Collections;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.stream.Collectors;
 
 /**
@@ -34,13 +47,324 @@ public class RequestContextService {
     private final RequestContextExtractor extractor;
     private final RequestContextProperties properties;
     private final RequestContextEnricher enricher;
+    private final MaskingHelper maskingHelper;
+    private final SourceHandlers sourceHandlers;
+    private final AntPathMatcher pathMatcher = new AntPathMatcher();
+
+    // Pre-computed maps for optimal performance (built on startup)
+    // Store full FieldConfiguration objects to eliminate runtime parsing
+    private final Map<String, FieldConfiguration> upstreamInboundFields = new ConcurrentHashMap<>();
+    private final Map<String, FieldConfiguration> upstreamOutboundFields = new ConcurrentHashMap<>();
+    private final Map<String, FieldConfiguration> downstreamInboundFields = new ConcurrentHashMap<>();
+    private final Map<String, FieldConfiguration> downstreamOutboundFields = new ConcurrentHashMap<>();
+    private final Map<String, FieldConfiguration> metricsLowCardinalityFields = new ConcurrentHashMap<>();
+    private final Map<String, FieldConfiguration> metricsMediumCardinalityFields = new ConcurrentHashMap<>();
+    private final Map<String, FieldConfiguration> metricsHighCardinalityFields = new ConcurrentHashMap<>();
+    private final Map<String, FieldConfiguration> loggingFields = new ConcurrentHashMap<>();
+    private final Map<String, FieldConfiguration> tracingFields = new ConcurrentHashMap<>();
+    private final Map<String, FieldConfiguration> sensitiveFields = new ConcurrentHashMap<>();
+    private final Map<String, FieldConfiguration> requiredFields = new ConcurrentHashMap<>();
+    private final Map<String, FieldConfiguration> preAuthPhaseFields = new ConcurrentHashMap<>();
+    private final Map<String, FieldConfiguration> postAuthPhaseFields = new ConcurrentHashMap<>();
+    private final Map<String, FieldConfiguration> allConfiguredFields = new ConcurrentHashMap<>();
+
+    // Pre-computed mappings for custom names/keys
+    private final Map<String, String> metricsTagNames = new ConcurrentHashMap<>();
+    private final Map<String, String> loggingMdcKeys = new ConcurrentHashMap<>();
+    private final Map<String, String> tracingTagNames = new ConcurrentHashMap<>();
+    private final Map<String, String> maskingPatterns = new ConcurrentHashMap<>();
+    private final Map<String, String> upstreamOutboundKeys = new ConcurrentHashMap<>();
+    private final Map<String, EnrichmentType> upstreamOutboundTypes = new ConcurrentHashMap<>();
 
     public RequestContextService(RequestContextExtractor extractor,
                                  RequestContextProperties properties,
-                                 RequestContextEnricher enricher) {
+                                 RequestContextEnricher enricher,
+                                 MaskingHelper maskingHelper,
+                                 SourceHandlers sourceHandlers) {
         this.extractor = extractor;
         this.properties = properties;
         this.enricher = enricher;
+        this.maskingHelper = maskingHelper;
+        this.sourceHandlers = sourceHandlers;
+    }
+
+    /**
+     * Initialize pre-computed sets for optimal performance
+     */
+    @PostConstruct
+    void initializeFieldSets() {
+        log.info("Initializing RequestContext field sets for optimal performance");
+
+        properties.getFields().forEach((fieldName, fieldConfig) -> {
+            // Process upstream configuration
+            if (fieldConfig.getUpstream() != null) {
+                if (fieldConfig.getUpstream().getInbound() != null) {
+                    upstreamInboundFields.put(fieldName, fieldConfig);
+                }
+                if (fieldConfig.getUpstream().getOutbound() != null) {
+                    upstreamOutboundFields.put(fieldName, fieldConfig);
+                    OutboundConfig outbound = fieldConfig.getUpstream().getOutbound();
+                    upstreamOutboundKeys.put(fieldName, outbound.getKey());
+                    upstreamOutboundTypes.put(fieldName, outbound.getEnrichAs());
+                }
+            }
+
+            // Process downstream configuration
+            if (fieldConfig.getDownstream() != null) {
+                if (fieldConfig.getDownstream().getInbound() != null) {
+                    downstreamInboundFields.put(fieldName, fieldConfig);
+                }
+                if (fieldConfig.getDownstream().getOutbound() != null) {
+                    downstreamOutboundFields.put(fieldName, fieldConfig);
+                }
+            }
+
+            // Process observability configuration
+            if (fieldConfig.getObservability() != null) {
+                processMetricsConfiguration(fieldName, fieldConfig);
+                processLoggingConfiguration(fieldName, fieldConfig);
+                processTracingConfiguration(fieldName, fieldConfig);
+            }
+
+            // Process security configuration
+            if (fieldConfig.getSecurity() != null && fieldConfig.getSecurity().isSensitive()) {
+                sensitiveFields.put(fieldName, fieldConfig);
+                String maskingPattern = fieldConfig.getSecurity().getMasking();
+                if (maskingPattern != null) {
+                    maskingPatterns.put(fieldName, maskingPattern);
+                }
+            }
+
+            // Process additional field categorizations
+            if (isRequired(fieldConfig)) {
+                requiredFields.put(fieldName, fieldConfig);
+            }
+
+            if (shouldExtractInPreAuthPhase(fieldConfig)) {
+                preAuthPhaseFields.put(fieldName, fieldConfig);
+            }
+
+            if (shouldExtractInPostAuthPhase(fieldConfig)) {
+                postAuthPhaseFields.put(fieldName, fieldConfig);
+            }
+
+            // Add to all configured fields
+            allConfiguredFields.put(fieldName, fieldConfig);
+        });
+
+        log.info("Initialized field sets: {} upstream inbound, {} metrics fields, {} logging fields, {} tracing fields",
+                upstreamInboundFields.size(),
+                metricsLowCardinalityFields.size() + metricsMediumCardinalityFields.size() + metricsHighCardinalityFields.size(),
+                loggingFields.size(),
+                tracingFields.size());
+    }
+
+    private void processMetricsConfiguration(String fieldName, FieldConfiguration fieldConfig) {
+        MetricsConfig metricsConfig = fieldConfig.getObservability().getMetrics();
+        if (metricsConfig == null) return;
+
+        // Check if metrics are implicitly or explicitly enabled
+        boolean implicitlyEnabled = metricsConfig.getCardinality() != CardinalityLevel.NONE ||
+                                   metricsConfig.getTagName() != null ||
+                                   metricsConfig.getMetricName() != null ||
+                                   metricsConfig.isHistogram();
+
+        if (metricsConfig.isEnabled() || implicitlyEnabled) {
+            CardinalityLevel cardinality = metricsConfig.getCardinality();
+            switch (cardinality) {
+                case LOW -> metricsLowCardinalityFields.put(fieldName, fieldConfig);
+                case MEDIUM -> metricsMediumCardinalityFields.put(fieldName, fieldConfig);
+                case HIGH -> metricsHighCardinalityFields.put(fieldName, fieldConfig);
+                // NONE cardinality fields are not added to any set
+            }
+
+            // Store custom tag name if configured
+            if (metricsConfig.getTagName() != null) {
+                metricsTagNames.put(fieldName, metricsConfig.getTagName());
+            }
+        }
+    }
+
+    private void processLoggingConfiguration(String fieldName, FieldConfiguration fieldConfig) {
+        LoggingConfig loggingConfig = fieldConfig.getObservability().getLogging();
+        if (loggingConfig == null) return;
+
+        // Check if logging is implicitly or explicitly enabled
+        boolean implicitlyEnabled = loggingConfig.getMdcKey() != null ||
+                                   loggingConfig.getLevel() != LogLevel.INFO;
+
+        if (loggingConfig.isEnabled() || implicitlyEnabled) {
+            loggingFields.put(fieldName, fieldConfig);
+
+            // Store custom MDC key if configured
+            if (loggingConfig.getMdcKey() != null) {
+                loggingMdcKeys.put(fieldName, loggingConfig.getMdcKey());
+            }
+        }
+    }
+
+    private void processTracingConfiguration(String fieldName, FieldConfiguration fieldConfig) {
+        TracingConfig tracingConfig = fieldConfig.getObservability().getTracing();
+        if (tracingConfig == null) return;
+
+        // Check if tracing is implicitly or explicitly enabled
+        boolean implicitlyEnabled = tracingConfig.getTagName() != null ||
+                                   tracingConfig.isUseNestedTags();
+
+        if (tracingConfig.isEnabled() || implicitlyEnabled) {
+            tracingFields.put(fieldName, fieldConfig);
+
+            // Store custom tag name if configured
+            if (tracingConfig.getTagName() != null) {
+                tracingTagNames.put(fieldName, tracingConfig.getTagName());
+            }
+        }
+    }
+
+    // ========================================
+    // Public API for Observability Components
+    // ========================================
+
+    /**
+     * Check if field should be included in metrics for the specified cardinality level
+     */
+    public boolean isMetricsField(String fieldName, CardinalityLevel level) {
+        return switch (level) {
+            case LOW -> metricsLowCardinalityFields.containsKey(fieldName);
+            case MEDIUM -> metricsMediumCardinalityFields.containsKey(fieldName);
+            case HIGH -> metricsHighCardinalityFields.containsKey(fieldName);
+            case NONE -> false;
+        };
+    }
+
+    /**
+     * Check if field should be included in logging/MDC
+     */
+    public boolean isLoggingField(String fieldName) {
+        return loggingFields.containsKey(fieldName);
+    }
+
+    /**
+     * Check if field should be included in tracing
+     */
+    public boolean isTracingField(String fieldName) {
+        return tracingFields.containsKey(fieldName);
+    }
+
+    /**
+     * Check if field contains sensitive data
+     */
+    public boolean isSensitiveField(String fieldName) {
+        return sensitiveFields.containsKey(fieldName);
+    }
+
+    /**
+     * Get custom metrics tag name or field name if no custom name configured
+     */
+    public String getMetricsTagName(String fieldName) {
+        return metricsTagNames.getOrDefault(fieldName, fieldName);
+    }
+
+    /**
+     * Get custom logging MDC key or field name if no custom key configured
+     */
+    public String getLoggingMdcKey(String fieldName) {
+        return loggingMdcKeys.getOrDefault(fieldName, fieldName);
+    }
+
+    /**
+     * Get custom tracing tag name or field name if no custom name configured
+     */
+    public String getTracingTagName(String fieldName) {
+        return tracingTagNames.getOrDefault(fieldName, fieldName);
+    }
+
+    /**
+     * Get masking pattern for sensitive field
+     */
+    public String getMaskingPattern(String fieldName) {
+        return maskingPatterns.get(fieldName);
+    }
+
+    /**
+     * Get the MaskingHelper instance for external use
+     */
+    public MaskingHelper getMaskingHelper() {
+        return maskingHelper;
+    }
+
+    /**
+     * Get all fields that should be included in metrics (any cardinality level)
+     */
+    public Set<String> getAllMetricsFields() {
+        Set<String> allMetricsFields = new HashSet<>();
+        allMetricsFields.addAll(metricsLowCardinalityFields.keySet());
+        allMetricsFields.addAll(metricsMediumCardinalityFields.keySet());
+        allMetricsFields.addAll(metricsHighCardinalityFields.keySet());
+        return allMetricsFields;
+    }
+
+    /**
+     * Get all fields that should be included in logging
+     */
+    public Set<String> getAllLoggingFields() {
+        return new HashSet<>(loggingFields.keySet());
+    }
+
+    /**
+     * Get all fields that should be included in tracing
+     */
+    public Set<String> getAllTracingFields() {
+        return new HashSet<>(tracingFields.keySet());
+    }
+
+    /**
+     * Get all fields that should be included in upstream outbound (response enrichment)
+     */
+    public Set<String> getAllUpstreamOutboundFields() {
+        return new HashSet<>(upstreamOutboundFields.keySet());
+    }
+
+    /**
+     * Get upstream outbound key for field
+     */
+    public String getUpstreamOutboundKey(String fieldName) {
+        return upstreamOutboundKeys.getOrDefault(fieldName, fieldName);
+    }
+
+    /**
+     * Get upstream outbound enrichment type for field
+     */
+    public EnrichmentType getUpstreamOutboundType(String fieldName) {
+        return upstreamOutboundTypes.get(fieldName);
+    }
+
+    /**
+     * Get all required fields
+     */
+    public Set<String> getAllRequiredFields() {
+        return new HashSet<>(requiredFields.keySet());
+    }
+
+    /**
+     * Check if field is required
+     */
+    public boolean isRequiredField(String fieldName) {
+        return requiredFields.containsKey(fieldName);
+    }
+
+    /**
+     * Get all configured field names
+     */
+    public Set<String> getAllConfiguredFields() {
+        return new HashSet<>(allConfiguredFields.keySet());
+    }
+
+    /**
+     * Check if a field is configured
+     */
+    public boolean isFieldConfigured(String fieldName) {
+        return allConfiguredFields.containsKey(fieldName);
     }
 
     // ========================================
@@ -105,7 +429,7 @@ public class RequestContextService {
     }
 
     /**
-     * Enrich existing RequestContext with authenticated data
+     * Enrich existing RequestContext with authenticated data (excluding BODY sources)
      * Called by RequestContextInterceptor after Spring Security authentication
      */
     public RequestContext enrichWithPostAuthPhaseData(HttpServletRequest request) {
@@ -113,12 +437,37 @@ public class RequestContextService {
         RequestContext context = RequestContext.getFromRequest(request)
                 .orElseThrow(() -> new IllegalStateException(
                         "RequestContext not found. Ensure RequestContextFilter is configured."));
-        log.debug("Enriching RequestContext with post auth phase data");
+        log.debug("Enriching RequestContext with post auth phase data (excluding BODY)");
 
-        // Extract all configured authenticated fields
-        int fieldsExtracted = extractPostAuthPhaseFields(request, context);
+        // Extract configured authenticated fields excluding BODY sources
+        int fieldsExtracted = extractPostAuthPhaseFieldsExcludingBody(request, context);
 
-        log.debug("Added {} post-auth fields", fieldsExtracted);
+        log.debug("Added {} post-auth fields (excluding BODY)", fieldsExtracted);
+
+        // Update MDC with new fields
+        updateMDC(context);
+
+        return context;
+    }
+
+    /**
+     * Enrich existing RequestContext with JSON BODY sources only
+     * Called after RequestBodyAdvice has captured the body content as JsonNode
+     */
+    public RequestContext enrichWithJsonBodySources(com.fasterxml.jackson.databind.JsonNode bodyNode) {
+        // Get the current request from RequestContextHolder
+        HttpServletRequest request = ((ServletRequestAttributes) RequestContextHolder.getRequestAttributes()).getRequest();
+
+        // Get existing context from request
+        RequestContext context = RequestContext.getFromRequest(request)
+                .orElseThrow(() -> new IllegalStateException(
+                        "RequestContext not found. Ensure RequestContextFilter is configured."));
+        log.debug("Enriching RequestContext with JSON BODY sources");
+
+        // Extract BODY source fields only
+        int fieldsExtracted = extractBodySourceFields(context, bodyNode);
+
+        log.debug("Added {} BODY source fields", fieldsExtracted);
 
         // Update MDC with new fields
         updateMDC(context);
@@ -135,10 +484,9 @@ public class RequestContextService {
 
             context.put(fieldName, value);
 
-            // Check if this field has configuration for MDC
-            FieldConfiguration fieldConfig = properties.getFields().get(fieldName);
-            if (fieldConfig != null && shouldIncludeInMDC(fieldConfig)) {
-                String mdcKey = getMdcKey(fieldConfig, fieldName);
+            // Check if this field should be included in MDC
+            if (isLoggingField(fieldName)) {
+                String mdcKey = getLoggingMdcKey(fieldName);
                 MDC.put(mdcKey, value);
             }
         }
@@ -162,18 +510,10 @@ public class RequestContextService {
      * These are fields that can be extracted before Spring Security authentication
      */
     public Map<String, FieldConfiguration> getPreAuthPhaseExtraction() {
-        Map<String, FieldConfiguration> preAuthFields = new LinkedHashMap<>();
-
-        properties.getFields().forEach((fieldName, fieldConfig) -> {
-            if (shouldExtractInPreAuthPhase(fieldConfig)) {
-                preAuthFields.put(fieldName, fieldConfig);
-            }
-        });
-
         log.debug("Pre-auth phase extraction group contains {} fields: {}",
-                preAuthFields.size(), preAuthFields.keySet());
+                preAuthPhaseFields.size(), preAuthPhaseFields.keySet());
 
-        return preAuthFields;
+        return new LinkedHashMap<>(preAuthPhaseFields);
     }
 
     /**
@@ -182,18 +522,10 @@ public class RequestContextService {
      * Includes: PATH, BODY, TOKEN, and CLAIM sources
      */
     public Map<String, FieldConfiguration> getPostAuthPhaseExtraction() {
-        Map<String, FieldConfiguration> postAuthFields = new LinkedHashMap<>();
-
-        properties.getFields().forEach((fieldName, fieldConfig) -> {
-            if (shouldExtractInPostAuthPhase(fieldConfig)) {
-                postAuthFields.put(fieldName, fieldConfig);
-            }
-        });
-
         log.debug("Post-auth phase extraction group contains {} fields: {}",
-                postAuthFields.size(), postAuthFields.keySet());
+                postAuthPhaseFields.size(), postAuthPhaseFields.keySet());
 
-        return postAuthFields;
+        return new LinkedHashMap<>(postAuthPhaseFields);
     }
 
     /**
@@ -211,17 +543,12 @@ public class RequestContextService {
             FieldConfiguration fieldConfig = entry.getValue();
 
             try {
-                String value = extractor.extractValue(fieldName, request);
-                if (value != null) {
-                    context.put(fieldName, value);
+                // Use the new extractAndStoreValue method that handles masking automatically
+                extractor.extractAndStoreValue(fieldName, fieldConfig, request, context);
+
+                // Check if value was actually stored
+                if (context.containsKey(fieldName)) {
                     count++;
-
-                    // Handle sensitive masking
-                    if (isSensitive(fieldConfig)) {
-                        String maskedValue = maskValue(value, fieldConfig);
-                        context.putMasked(fieldName, maskedValue);
-                    }
-
                     log.trace("Extracted pre-auth field '{}' from source {}",
                             fieldName, fieldConfig.getUpstream().getInbound().getSource());
                 }
@@ -254,17 +581,12 @@ public class RequestContextService {
             FieldConfiguration fieldConfig = entry.getValue();
 
             try {
-                String value = extractor.extractValue(fieldName, request);
-                if (value != null) {
-                    context.put(fieldName, value);
+                // Use the new extractAndStoreValue method that handles masking automatically
+                extractor.extractAndStoreValue(fieldName, fieldConfig, request, context);
+
+                // Check if value was actually stored
+                if (context.containsKey(fieldName)) {
                     count++;
-
-                    // Handle sensitive masking
-                    if (isSensitive(fieldConfig)) {
-                        String maskedValue = maskValue(value, fieldConfig);
-                        context.putMasked(fieldName, maskedValue);
-                    }
-
                     log.trace("Extracted post-auth field '{}' from source {}",
                             fieldName, fieldConfig.getUpstream().getInbound().getSource());
                 }
@@ -282,16 +604,125 @@ public class RequestContextService {
     }
 
     /**
-     * Enrich context with handler information
+     * Extract fields from post-authentication phase group excluding BODY sources
+     * Includes PATH, TOKEN, and CLAIM sources only
+     * Returns number of fields extracted
      */
-    public void enrichWithHandlerInfo(RequestContext context, String handlerMethod, String handlerClass) {
-        if (handlerMethod != null) {
-            context.put("handler", handlerMethod);
+    private int extractPostAuthPhaseFieldsExcludingBody(HttpServletRequest request, RequestContext context) {
+        Map<String, FieldConfiguration> postAuthFields = getPostAuthPhaseExtraction();
+        int count = 0;
+
+        log.debug("Extracting {} post-auth phase fields (PATH, TOKEN, CLAIM - excluding BODY)", postAuthFields.size());
+
+        for (Map.Entry<String, FieldConfiguration> entry : postAuthFields.entrySet()) {
+            String fieldName = entry.getKey();
+            FieldConfiguration fieldConfig = entry.getValue();
+
+            // Skip BODY sources
+            if (isBodySource(fieldConfig)) {
+                continue;
+            }
+
+            try {
+                // Use the new extractAndStoreValue method that handles masking automatically
+                extractor.extractAndStoreValue(fieldName, fieldConfig, request, context);
+
+                // Check if value was actually stored
+                if (context.containsKey(fieldName)) {
+                    count++;
+                    log.trace("Extracted post-auth field '{}' from source {}",
+                            fieldName, fieldConfig.getUpstream().getInbound().getSource());
+                }
+            } catch (Exception e) {
+                if (isRequired(fieldConfig)) {
+                    throw new IllegalStateException(
+                            "Failed to extract required post-auth field: " + fieldName, e);
+                }
+                log.debug("Failed to extract post-auth field '{}': {}", fieldName, e.getMessage());
+            }
         }
-        if (handlerClass != null) {
-            context.put("handlerClass", handlerClass);
-        }
+
+        log.debug("Extracted {} post-auth fields (excluding BODY) successfully", count);
+        return count;
     }
+
+    /**
+     * Extract JSON BODY sources only (called after RequestBodyAdvice has captured body)
+     * Returns number of fields extracted
+     */
+    private int extractBodySourceFields(RequestContext context, JsonNode bodyNode) {
+        Map<String, FieldConfiguration> postAuthFields = getPostAuthPhaseExtraction();
+        int count = 0;
+
+        log.debug("Extracting BODY source fields only");
+
+        for (Map.Entry<String, FieldConfiguration> entry : postAuthFields.entrySet()) {
+            String fieldName = entry.getKey();
+            FieldConfiguration fieldConfig = entry.getValue();
+
+            // Only process BODY sources
+            if (!isBodySource(fieldConfig)) {
+                continue;
+            }
+
+            try {
+                // Use the new extractAndStoreValueFromBody method that handles masking automatically
+                extractor.extractAndStoreValueFromBody(fieldName, fieldConfig, bodyNode, context);
+
+                // Check if value was actually stored
+                if (context.containsKey(fieldName)) {
+                    count++;
+                    log.trace("Extracted BODY field '{}' from source {}",
+                            fieldName, fieldConfig.getUpstream().getInbound().getSource());
+                }
+            } catch (Exception e) {
+                if (isRequired(fieldConfig)) {
+                    throw new IllegalStateException(
+                            "Failed to extract required BODY field: " + fieldName, e);
+                }
+                log.debug("Failed to extract BODY field '{}': {}", fieldName, e.getMessage());
+            }
+        }
+
+        log.debug("Extracted {} BODY source fields successfully", count);
+        return count;
+    }
+
+    /**
+     * Check if field configuration is a BODY source
+     */
+    private boolean isBodySource(FieldConfiguration field) {
+        return field.getUpstream() != null &&
+               field.getUpstream().getInbound() != null &&
+               field.getUpstream().getInbound().getSource() == RequestContextProperties.SourceType.BODY;
+    }
+
+    /**
+     * Check if any BODY sources are configured
+     */
+    public boolean hasBodySourcesConfigured() {
+        return properties.getFields().values().stream()
+                .anyMatch(this::isBodySource);
+    }
+
+    /**
+     * Check if a request path should be excluded from filtering
+     * Uses configured exclude patterns from filter configuration
+     */
+    public boolean shouldExcludeFromFiltering(String requestPath) {
+        String[] excludePatterns = properties.getFilterConfig().getExcludePatterns();
+        if (excludePatterns != null) {
+            for (String pattern : excludePatterns) {
+                if (pathMatcher.match(pattern, requestPath)) {
+                    log.debug("Path {} matches exclusion pattern: {}", requestPath, pattern);
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+
+
 
 
 
@@ -314,13 +745,12 @@ public class RequestContextService {
     public void enrichWithDownstreamResponse(ClientResponse response, RequestContext context) {
         log.debug("Enriching context with downstream response data");
 
-        properties.getFields().forEach((fieldName, fieldConfig) -> {
-            if (shouldCaptureFromDownstreamResponse(fieldConfig)) {
-                try {
-                    captureFieldFromDownstreamResponse(fieldName, fieldConfig, response, context);
-                } catch (Exception e) {
-                    log.error("Error capturing downstream field '{}': {}", fieldName, e.getMessage());
-                }
+        // Use pre-computed downstream inbound fields for optimal performance
+        downstreamInboundFields.forEach((fieldName, fieldConfig) -> {
+            try {
+                captureFieldFromDownstreamResponse(fieldName, fieldConfig, response, context);
+            } catch (Exception e) {
+                log.error("Error capturing downstream field '{}': {}", fieldName, e.getMessage());
             }
         });
 
@@ -328,17 +758,10 @@ public class RequestContextService {
         updateMDC(context);
     }
 
-    /**
-     * Check if field should be captured from downstream response
-     */
-    private boolean shouldCaptureFromDownstreamResponse(FieldConfiguration fieldConfig) {
-        return fieldConfig.getDownstream() != null &&
-                fieldConfig.getDownstream().getInbound() != null &&
-                fieldConfig.getDownstream().getInbound().getSource() == SourceType.HEADER;
-    }
+
 
     /**
-     * Capture a single field from downstream response
+     * Capture a single field from downstream response using the helper pattern
      */
     private void captureFieldFromDownstreamResponse(String fieldName,
                                                    FieldConfiguration fieldConfig,
@@ -347,10 +770,10 @@ public class RequestContextService {
 
         var inbound = fieldConfig.getDownstream().getInbound();
 
-        // Get header values from response
-        List<String> headerValues = response.headers().header(inbound.getKey());
+        // Use the source handlers registry for downstream response extraction
+        String value = sourceHandlers.extractFromDownstreamResponse(inbound.getSource(), response, inbound);
 
-        if (headerValues.isEmpty()) {
+        if (value == null) {
             // Try default value if configured
             if (inbound.getDefaultValue() != null) {
                 processAndStoreDownstreamValue(fieldName, inbound.getDefaultValue(),
@@ -360,14 +783,11 @@ public class RequestContextService {
 
             // Log if required field is missing
             if (inbound.isRequired()) {
-                log.warn("Required downstream header '{}' not found in response for field '{}'",
-                        inbound.getKey(), fieldName);
+                log.warn("Required downstream field '{}' not found in response for field '{}' from source '{}'",
+                        inbound.getKey(), fieldName, inbound.getSource());
             }
             return;
         }
-
-        // Take first value if multiple headers present
-        String value = headerValues.get(0);
 
         // Process and store the value
         processAndStoreDownstreamValue(fieldName, value, fieldConfig, context, false);
@@ -413,7 +833,7 @@ public class RequestContextService {
 
             // Handle sensitive field masking
             if (isSensitive(fieldConfig)) {
-                String maskedValue = maskValue(value, fieldConfig);
+                String maskedValue = maskingHelper.maskValue(value, fieldConfig);
                 context.putMasked(fieldName, maskedValue);
                 log.debug("Captured downstream field '{}' = [MASKED]", fieldName);
             } else {
@@ -438,13 +858,11 @@ public class RequestContextService {
      * Update MDC with all configured fields from context
      */
     public void updateMDC(RequestContext context) {
-        properties.getFields().forEach((fieldName, fieldConfig) -> {
-            if (shouldIncludeInMDC(fieldConfig)) {
-                String value = context.getMaskedOrOriginal(fieldName);
-                if (value != null) {
-                    String mdcKey = getMdcKey(fieldConfig, fieldName);
-                    MDC.put(mdcKey, value);
-                }
+        loggingFields.keySet().forEach(fieldName -> {
+            String value = context.getMaskedOrOriginal(fieldName);
+            if (value != null) {
+                String mdcKey = getLoggingMdcKey(fieldName);
+                MDC.put(mdcKey, value);
             }
         });
     }
@@ -453,11 +871,9 @@ public class RequestContextService {
      * Clear all MDC entries managed by RequestContext
      */
     public void clearMDC() {
-        properties.getFields().forEach((fieldName, fieldConfig) -> {
-            if (shouldIncludeInMDC(fieldConfig)) {
-                String mdcKey = getMdcKey(fieldConfig, fieldName);
-                MDC.remove(mdcKey);
-            }
+        loggingFields.keySet().forEach(fieldName -> {
+            String mdcKey = getLoggingMdcKey(fieldName);
+            MDC.remove(mdcKey);
         });
     }
 
@@ -466,30 +882,36 @@ public class RequestContextService {
     // ========================================
 
     /**
-     * Enrich HTTP response headers based on configuration
+     * Enrich HTTP response based on configuration using the helper pattern
      */
-    public void enrichResponseHeaders(HttpServletResponse response, RequestContext context) {
+    public void enrichResponse(HttpServletResponse response, RequestContext context) {
         int count = 0;
 
-        for (Map.Entry<String, FieldConfiguration> entry : properties.getFields().entrySet()) {
-            String fieldName = entry.getKey();
-            FieldConfiguration fieldConfig = entry.getValue();
+        // Use pre-computed upstream outbound fields for optimal performance
+        for (String fieldName : upstreamOutboundFields.keySet()) {
+            String value = context.get(fieldName);
 
-            if (shouldEnrichUpstreamResponse(fieldConfig)) {
-                OutboundConfig outbound = fieldConfig.getUpstream().getOutbound();
-                String value = context.get(fieldName);
+            if (value != null) {
+                EnrichmentType enrichmentType = getUpstreamOutboundType(fieldName);
+                String key = getUpstreamOutboundKey(fieldName);
 
-                if (value != null && outbound.getEnrichAs() == EnrichmentType.HEADER) {
-                    response.setHeader(outbound.getKey(), value);
-                    count++;
-                    log.trace("Added response header '{}' for field '{}'",
-                            outbound.getKey(), fieldName);
+                if (enrichmentType != null) {
+                    try {
+                        sourceHandlers.enrichUpstreamResponse(enrichmentType, response, key, value);
+                        count++;
+                        log.trace("Applied response enrichment '{}' for field '{}' with type '{}'",
+                                key, fieldName, enrichmentType);
+                    } catch (Exception e) {
+                        log.error("Error applying response enrichment for field '{}': {}", fieldName, e.getMessage());
+                    }
+                } else {
+                    log.warn("No enrichment type configured for upstream outbound field: {}", fieldName);
                 }
             }
         }
 
         if (count > 0) {
-            log.debug("Enriched response with {} headers", count);
+            log.debug("Enriched response with {} fields", count);
         }
     }
 
@@ -503,12 +925,18 @@ public class RequestContextService {
     public Map<String, String> getMetricsFields(RequestContext context, CardinalityLevel level) {
         Map<String, String> metricsFields = new LinkedHashMap<>();
 
-        properties.getFields().forEach((fieldName, fieldConfig) -> {
-            if (shouldIncludeInMetrics(fieldConfig, level)) {
-                String value = context.getMaskedOrOriginal(fieldName);
-                if (value != null) {
-                    metricsFields.put(fieldName, value);
-                }
+        Set<String> fieldsForLevel = switch (level) {
+            case LOW -> metricsLowCardinalityFields.keySet();
+            case MEDIUM -> metricsMediumCardinalityFields.keySet();
+            case HIGH -> metricsHighCardinalityFields.keySet();
+            case NONE -> Collections.emptySet();
+        };
+
+        fieldsForLevel.forEach(fieldName -> {
+            String value = context.getMaskedOrOriginal(fieldName);
+            if (value != null) {
+                String tagName = getMetricsTagName(fieldName);
+                metricsFields.put(tagName, value);
             }
         });
 
@@ -533,19 +961,17 @@ public class RequestContextService {
      * Get fields configured for tracing
      */
     public Map<String, String> getTracingFields(RequestContext context) {
-        Map<String, String> tracingFields = new LinkedHashMap<>();
+        Map<String, String> tracingFieldsMap = new LinkedHashMap<>();
 
-        properties.getFields().forEach((fieldName, fieldConfig) -> {
-            if (shouldIncludeInTracing(fieldConfig)) {
-                String value = context.getMaskedOrOriginal(fieldName);
-                if (value != null) {
-                    String tagName = getTraceTagName(fieldConfig, fieldName);
-                    tracingFields.put(tagName, value);
-                }
+        tracingFields.keySet().forEach(fieldName -> {
+            String value = context.getMaskedOrOriginal(fieldName);
+            if (value != null) {
+                String tagName = getTracingTagName(fieldName);
+                tracingFieldsMap.put(tagName, value);
             }
         });
 
-        return tracingFields;
+        return tracingFieldsMap;
     }
 
     // ========================================
@@ -560,14 +986,13 @@ public class RequestContextService {
     public void validateRequiredFields(RequestContext context) {
         List<String> missingFields = new ArrayList<>();
 
-        properties.getFields().forEach((fieldName, fieldConfig) -> {
-            if (isRequired(fieldConfig)) {
-                String value = context.get(fieldName);
-                if (value == null || value.isEmpty()) {
-                    missingFields.add(fieldName);
-                }
+        // Use pre-computed required fields for optimal performance
+        for (String fieldName : requiredFields.keySet()) {
+            String value = context.get(fieldName);
+            if (value == null || value.isEmpty()) {
+                missingFields.add(fieldName);
             }
-        });
+        }
 
         if (!missingFields.isEmpty()) {
             String message = "Missing required fields: " + String.join(", ", missingFields);
@@ -588,19 +1013,7 @@ public class RequestContextService {
                 .collect(Collectors.joining(", "));
     }
 
-    /**
-     * Get all configured field names
-     */
-    public Set<String> getConfiguredFields() {
-        return properties.getFields().keySet();
-    }
 
-    /**
-     * Check if a field is configured
-     */
-    public boolean isFieldConfigured(String fieldName) {
-        return properties.getFields().containsKey(fieldName);
-    }
 
     /**
      * Extract a single field value on demand
@@ -671,10 +1084,9 @@ public class RequestContextService {
         SourceType source = fieldConfig.getUpstream().getInbound().getSource();
 
         // Sources that can be extracted early (before authentication)
-        return source == SourceType.HEADER || 
-               source == SourceType.QUERY ||
+        return source == SourceType.HEADER ||
+               source == SourceType.QUERY  ||
                source == SourceType.COOKIE ||
-               source == SourceType.FORM ||
                source == SourceType.SESSION;
     }
 
@@ -688,7 +1100,6 @@ public class RequestContextService {
                 fieldConfig.getUpstream().getInbound() == null) {
             return false;
         }
-
         SourceType source = fieldConfig.getUpstream().getInbound().getSource();
 
         // Sources that require Spring MVC mapping and/or authentication context
@@ -696,34 +1107,6 @@ public class RequestContextService {
                source == SourceType.BODY ||     // Needs to read body before controller
                source == SourceType.TOKEN ||    // Needs authentication context
                source == SourceType.CLAIM;      // Needs JWT/token parsing
-    }
-
-    private boolean shouldIncludeInMDC(FieldConfiguration fieldConfig) {
-        return fieldConfig.getObservability() != null &&
-                fieldConfig.getObservability().getLogging() != null &&
-                fieldConfig.getObservability().getLogging().isEnabled();
-    }
-
-    private boolean shouldIncludeInMetrics(FieldConfiguration fieldConfig,
-                                           CardinalityLevel level) {
-        if (fieldConfig.getObservability() == null ||
-                fieldConfig.getObservability().getMetrics() == null) {
-            return false;
-        }
-
-        MetricsConfig metricsConfig = fieldConfig.getObservability().getMetrics();
-        return metricsConfig.isEnabled() && metricsConfig.getCardinality() == level;
-    }
-
-    private boolean shouldIncludeInTracing(FieldConfiguration fieldConfig) {
-        return fieldConfig.getObservability() != null &&
-                fieldConfig.getObservability().getTracing() != null &&
-                fieldConfig.getObservability().getTracing().isEnabled();
-    }
-
-    private boolean shouldEnrichUpstreamResponse(FieldConfiguration fieldConfig) {
-        return fieldConfig.getUpstream() != null &&
-                fieldConfig.getUpstream().getOutbound() != null;
     }
 
     private boolean isSensitive(FieldConfiguration fieldConfig) {
@@ -737,180 +1120,4 @@ public class RequestContextService {
                 fieldConfig.getUpstream().getInbound().isRequired();
     }
 
-    private String getMdcKey(FieldConfiguration fieldConfig, String fieldName) {
-        if (fieldConfig.getObservability() != null &&
-                fieldConfig.getObservability().getLogging() != null &&
-                fieldConfig.getObservability().getLogging().getMdcKey() != null) {
-            return fieldConfig.getObservability().getLogging().getMdcKey();
-        }
-        return fieldName;
-    }
-
-    private String getTraceTagName(FieldConfiguration fieldConfig, String fieldName) {
-        if (fieldConfig.getObservability() != null &&
-                fieldConfig.getObservability().getTracing() != null &&
-                fieldConfig.getObservability().getTracing().getTagName() != null) {
-            return fieldConfig.getObservability().getTracing().getTagName();
-        }
-        return fieldName;
-    }
-
-    private String maskValue(String value, FieldConfiguration fieldConfig) {
-        if (value == null || value.isEmpty()) {
-            return value;
-        }
-
-        if (fieldConfig.getSecurity() == null ||
-                fieldConfig.getSecurity().getMasking() == null) {
-            return "***";
-        }
-
-        String maskPattern = fieldConfig.getSecurity().getMasking();
-
-        // Handle advanced masking patterns with {n} syntax
-        if (maskPattern.contains("{") && maskPattern.contains("}")) {
-            return applyAdvancedMaskPattern(value, maskPattern);
-        }
-
-        // Handle email masking
-        if (maskPattern.contains("@") && value.contains("@")) {
-            return applyEmailMasking(value, maskPattern);
-        }
-
-        // Handle legacy partial masking (e.g., "*-4" shows last 4 chars)
-        if (maskPattern.startsWith("*-")) {
-            return applyLegacyPartialMasking(value, maskPattern);
-        }
-
-        // Default: return the pattern as-is (simple replacement)
-        return maskPattern;
-    }
-
-    /**
-     * Apply advanced masking patterns with {n} syntax
-     * Examples:
-     * - "****-****-****-{4}" -> show last 4 characters
-     * - "{8}***" -> show first 8 characters
-     * - "***{4}***" -> show middle 4 characters
-     * - "{3}-***-{4}" -> show first 3 and last 4 characters
-     */
-    private String applyAdvancedMaskPattern(String value, String maskPattern) {
-        try {
-            StringBuilder result = new StringBuilder();
-            int valueIndex = 0;
-            int patternIndex = 0;
-
-            while (patternIndex < maskPattern.length() && valueIndex < value.length()) {
-                char c = maskPattern.charAt(patternIndex);
-
-                if (c == '{') {
-                    // Find the closing brace
-                    int closeBrace = maskPattern.indexOf('}', patternIndex);
-                    if (closeBrace == -1) {
-                        break; // Invalid pattern
-                    }
-
-                    // Extract the number
-                    String numberStr = maskPattern.substring(patternIndex + 1, closeBrace);
-                    int showChars = Integer.parseInt(numberStr);
-
-                    // Determine if this is from start, end, or middle
-                    boolean isFromStart = patternIndex == 0 ||
-                        (patternIndex > 0 && maskPattern.charAt(patternIndex - 1) != '*');
-                    boolean isFromEnd = closeBrace == maskPattern.length() - 1 ||
-                        (closeBrace < maskPattern.length() - 1 && maskPattern.charAt(closeBrace + 1) != '*');
-
-                    if (isFromStart) {
-                        // Show characters from start
-                        int charsToShow = Math.min(showChars, value.length() - valueIndex);
-                        result.append(value, valueIndex, valueIndex + charsToShow);
-                        valueIndex += charsToShow;
-                    } else if (isFromEnd) {
-                        // Show characters from end
-                        int remainingChars = value.length() - valueIndex;
-                        int skipChars = Math.max(0, remainingChars - showChars);
-                        valueIndex += skipChars;
-                        result.append(value.substring(valueIndex));
-                        valueIndex = value.length();
-                    } else {
-                        // Show characters from middle (complex case)
-                        int charsToShow = Math.min(showChars, value.length() - valueIndex);
-                        result.append(value, valueIndex, valueIndex + charsToShow);
-                        valueIndex += charsToShow;
-                    }
-
-                    patternIndex = closeBrace + 1;
-                } else if (c == '*') {
-                    // Skip characters in value (mask them)
-                    result.append('*');
-                    if (valueIndex < value.length()) {
-                        valueIndex++;
-                    }
-                    patternIndex++;
-                } else {
-                    // Literal character in pattern
-                    result.append(c);
-                    patternIndex++;
-                }
-            }
-
-            // Handle any remaining pattern characters
-            while (patternIndex < maskPattern.length()) {
-                char c = maskPattern.charAt(patternIndex);
-                if (c != '{' && c != '}' && !Character.isDigit(c)) {
-                    result.append(c);
-                }
-                patternIndex++;
-            }
-
-            return result.toString();
-
-        } catch (Exception e) {
-            log.debug("Error applying advanced mask pattern '{}' to value: {}", maskPattern, e.getMessage());
-            return "***"; // Fallback to simple masking
-        }
-    }
-
-    /**
-     * Apply email-specific masking
-     */
-    private String applyEmailMasking(String value, String maskPattern) {
-        int atIndex = value.indexOf("@");
-        if (atIndex <= 0) {
-            return maskPattern; // Not a valid email, return pattern as-is
-        }
-
-        String localPart = value.substring(0, atIndex);
-        String domainPart = value.substring(atIndex + 1);
-
-        // Apply masking based on pattern
-        if (maskPattern.equals("***@***.***")) {
-            return "***@***.***";
-        } else if (maskPattern.contains("{") && maskPattern.contains("}")) {
-            // Advanced email masking like "{3}***@***.***" or "***@{3}.***"
-            return applyAdvancedMaskPattern(value, maskPattern);
-        } else {
-            // Simple email masking
-            return localPart.charAt(0) + "***@***." +
-                   (domainPart.contains(".") ? domainPart.substring(domainPart.lastIndexOf(".") + 1) : "***");
-        }
-    }
-
-    /**
-     * Apply legacy partial masking for backward compatibility
-     */
-    private String applyLegacyPartialMasking(String value, String maskPattern) {
-        String[] parts = maskPattern.split("-");
-        if (parts.length > 1) {
-            try {
-                int showChars = Integer.parseInt(parts[1]);
-                if (value.length() > showChars) {
-                    return "***" + value.substring(value.length() - showChars);
-                }
-            } catch (NumberFormatException e) {
-                log.debug("Invalid legacy mask pattern: {}", maskPattern);
-            }
-        }
-        return "***";
-    }
 }

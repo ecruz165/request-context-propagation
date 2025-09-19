@@ -1,0 +1,228 @@
+# Example: Custom Tag Names for Span Structure Grouping
+# This configuration demonstrates how users can control how values are grouped together in span structure
+
+request-context:
+  enabled: true
+  
+  fields:
+    # Example 1: Group user-related fields under "principal" namespace
+    userId:
+      upstream:
+        inbound:
+          source: "TOKEN"
+          key: "sub"  # JWT subject claim
+      observability:
+        metrics:
+          enabled: true
+          cardinality: LOW
+          tagName: "principal.userId"  # Groups under "principal" namespace
+        tracing:
+          enabled: true
+          tagName: "principal.userId"  # Same grouping in traces
+        logging:
+          enabled: true
+          mdcKey: "principal.userId"
+    
+    userEmail:
+      upstream:
+        inbound:
+          source: "TOKEN"
+          key: "email"
+      observability:
+        metrics:
+          enabled: true
+          cardinality: MEDIUM
+          tagName: "principal.email"  # Groups with other principal fields
+        tracing:
+          enabled: true
+          tagName: "principal.email"
+      security:
+        sensitive: true
+        masking: "***@***.***"
+    
+    userRole:
+      upstream:
+        inbound:
+          source: "TOKEN"
+          key: "role"
+      observability:
+        metrics:
+          enabled: true
+          cardinality: LOW
+          tagName: "principal.role"  # Groups with other principal fields
+        tracing:
+          enabled: true
+          tagName: "principal.role"
+    
+    # Example 2: Group organization-related fields under "org" namespace
+    tenantId:
+      upstream:
+        inbound:
+          source: "HEADER"
+          key: "X-Tenant-ID"
+      observability:
+        metrics:
+          enabled: true
+          cardinality: LOW
+          tagName: "org.tenantId"  # Groups under "org" namespace
+        tracing:
+          enabled: true
+          tagName: "org.tenantId"
+    
+    organizationId:
+      upstream:
+        inbound:
+          source: "TOKEN"
+          key: "org_id"
+      observability:
+        metrics:
+          enabled: true
+          cardinality: LOW
+          tagName: "org.organizationId"  # Groups with other org fields
+        tracing:
+          enabled: true
+          tagName: "org.organizationId"
+    
+    departmentId:
+      upstream:
+        inbound:
+          source: "HEADER"
+          key: "X-Department-ID"
+      observability:
+        metrics:
+          enabled: true
+          cardinality: MEDIUM
+          tagName: "org.departmentId"  # Groups with other org fields
+        tracing:
+          enabled: true
+          tagName: "org.departmentId"
+    
+    # Example 3: Group request-related fields under "request" namespace
+    requestId:
+      upstream:
+        inbound:
+          source: "GENERATED"
+          generator: "UUID"
+      observability:
+        metrics:
+          enabled: true
+          cardinality: HIGH
+          tagName: "request.id"  # Groups under "request" namespace
+        tracing:
+          enabled: true
+          tagName: "request.id"
+        logging:
+          enabled: true
+          mdcKey: "request.id"
+    
+    correlationId:
+      upstream:
+        inbound:
+          source: "HEADER"
+          key: "X-Correlation-ID"
+      observability:
+        metrics:
+          enabled: true
+          cardinality: HIGH
+          tagName: "request.correlationId"  # Groups with other request fields
+        tracing:
+          enabled: true
+          tagName: "request.correlationId"
+    
+    sessionId:
+      upstream:
+        inbound:
+          source: "COOKIE"
+          key: "JSESSIONID"
+      observability:
+        metrics:
+          enabled: true
+          cardinality: HIGH
+          tagName: "request.sessionId"  # Groups with other request fields
+        tracing:
+          enabled: true
+          tagName: "request.sessionId"
+      security:
+        sensitive: true
+        masking: "***-{4}"  # Show last 4 characters
+    
+    # Example 4: Group business context under "business" namespace
+    partyId:
+      upstream:
+        inbound:
+          source: "HEADER"
+          key: "X-Party-ID"
+      observability:
+        metrics:
+          enabled: true
+          cardinality: LOW
+          tagName: "business.partyId"  # Groups under "business" namespace
+        tracing:
+          enabled: true
+          tagName: "business.partyId"
+    
+    transactionType:
+      upstream:
+        inbound:
+          source: "QUERY"
+          key: "txnType"
+      observability:
+        metrics:
+          enabled: true
+          cardinality: LOW
+          tagName: "business.transactionType"  # Groups with other business fields
+        tracing:
+          enabled: true
+          tagName: "business.transactionType"
+    
+    # Example 5: Group technical context under "tech" namespace
+    apiVersion:
+      upstream:
+        inbound:
+          source: "HEADER"
+          key: "X-API-Version"
+          defaultValue: "v1"
+      observability:
+        metrics:
+          enabled: true
+          cardinality: LOW
+          tagName: "tech.apiVersion"  # Groups under "tech" namespace
+        tracing:
+          enabled: true
+          tagName: "tech.apiVersion"
+    
+    clientVersion:
+      upstream:
+        inbound:
+          source: "HEADER"
+          key: "X-Client-Version"
+      observability:
+        metrics:
+          enabled: true
+          cardinality: MEDIUM
+          tagName: "tech.clientVersion"  # Groups with other tech fields
+        tracing:
+          enabled: true
+          tagName: "tech.clientVersion"
+
+# This configuration will result in span tags like:
+# - principal.userId: "user123"
+# - principal.email: "***@***.***"
+# - principal.role: "admin"
+# - org.tenantId: "acme-corp"
+# - org.organizationId: "org456"
+# - org.departmentId: "dept789"
+# - request.id: "req-uuid-123"
+# - request.correlationId: "corr-456"
+# - request.sessionId: "***-AB12"
+# - business.partyId: "party123"
+# - business.transactionType: "payment"
+# - tech.apiVersion: "v2"
+# - tech.clientVersion: "mobile-1.2.3"
+#
+# This grouping makes it easy to:
+# 1. Filter spans by namespace (e.g., all principal.* tags)
+# 2. Aggregate metrics by logical groups
+# 3. Create dashboards organized by business domains
+# 4. Set up alerts based on grouped context
+# 5. Analyze performance patterns by context groups

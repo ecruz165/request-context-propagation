@@ -1,0 +1,169 @@
+# Example: Implicit Enablement Configuration
+# This demonstrates how observability features are automatically enabled based on configuration presence
+
+request-context:
+  enabled: true
+  
+  fields:
+    # Example 1: Implicit Metrics Enablement
+    userId:
+      upstream:
+        inbound:
+          source: "TOKEN"
+          key: "sub"
+      observability:
+        metrics:
+          cardinality: LOW  # ← Implicitly enables metrics (no need for enabled: true)
+          tagName: "principal.userId"
+        # No explicit enabled: true needed!
+    
+    # Example 2: Implicit Logging Enablement
+    tenantId:
+      upstream:
+        inbound:
+          source: "HEADER"
+          key: "X-Tenant-ID"
+      observability:
+        logging:
+          mdcKey: "org.tenantId"  # ← Implicitly enables logging
+        # No explicit enabled: true needed!
+    
+    # Example 3: Implicit Tracing Enablement
+    requestId:
+      upstream:
+        inbound:
+          source: "GENERATED"
+          generator: "UUID"
+      observability:
+        tracing:
+          tagName: "request.id"  # ← Implicitly enables tracing
+        # No explicit enabled: true needed!
+    
+    # Example 4: Multiple Implicit Enablements
+    partyId:
+      upstream:
+        inbound:
+          source: "HEADER"
+          key: "X-Party-ID"
+      observability:
+        metrics:
+          cardinality: LOW  # ← Implicitly enables metrics
+          tagName: "business.partyId"
+        logging:
+          mdcKey: "business.partyId"  # ← Implicitly enables logging
+        tracing:
+          tagName: "business.partyId"  # ← Implicitly enables tracing
+        # All three observability types enabled without explicit enabled: true!
+    
+    # Example 5: Explicit Enablement (Still Supported)
+    sensitiveData:
+      upstream:
+        inbound:
+          source: "HEADER"
+          key: "X-Sensitive-Data"
+      observability:
+        metrics:
+          enabled: true  # ← Explicit enablement still works
+          cardinality: MEDIUM
+        logging:
+          enabled: true  # ← Explicit enablement still works
+          mdcKey: "sensitive.data"
+      security:
+        sensitive: true
+        masking: "***"
+    
+    # Example 6: Custom Log Level Enables Logging
+    debugField:
+      upstream:
+        inbound:
+          source: "QUERY"
+          key: "debug"
+      observability:
+        logging:
+          level: DEBUG  # ← Implicitly enables logging (non-default level)
+    
+    # Example 7: Custom Metric Name Enables Metrics
+    performanceMetric:
+      upstream:
+        inbound:
+          source: "HEADER"
+          key: "X-Performance-Hint"
+      observability:
+        metrics:
+          metricName: "custom.performance.hint"  # ← Implicitly enables metrics
+          cardinality: LOW
+    
+    # Example 8: Histogram Enables Metrics
+    responseTime:
+      upstream:
+        inbound:
+          source: "GENERATED"
+          generator: "TIMESTAMP"
+      observability:
+        metrics:
+          histogram: true  # ← Implicitly enables metrics
+          cardinality: HIGH
+    
+    # Example 9: Nested Tags Enable Tracing
+    organizationId:
+      upstream:
+        inbound:
+          source: "TOKEN"
+          key: "org_id"
+      observability:
+        tracing:
+          useNestedTags: true  # ← Implicitly enables tracing
+          tagName: "org.organizationId"
+    
+    # Example 10: No Observability Config = No Observability
+    internalField:
+      upstream:
+        inbound:
+          source: "HEADER"
+          key: "X-Internal-Field"
+      # No observability section = field won't appear in metrics, logs, or traces
+
+# Implicit Enablement Rules:
+#
+# METRICS are implicitly enabled when ANY of these are configured:
+# - cardinality: LOW|MEDIUM|HIGH (not NONE)
+# - tagName: "custom.tag.name"
+# - metricName: "custom.metric.name"
+# - histogram: true
+#
+# LOGGING is implicitly enabled when ANY of these are configured:
+# - mdcKey: "custom.mdc.key"
+# - level: DEBUG|WARN|ERROR (not INFO)
+#
+# TRACING is implicitly enabled when ANY of these are configured:
+# - tagName: "custom.tag.name"
+# - useNestedTags: true
+#
+# EXPLICIT ENABLEMENT still works:
+# - enabled: true (always enables regardless of other settings)
+# - enabled: false (always disables regardless of other settings)
+
+# Benefits of Implicit Enablement:
+# 1. **Less Verbose**: No need to specify enabled: true everywhere
+# 2. **More Intuitive**: Configuration presence implies intent to use
+# 3. **Backward Compatible**: Explicit enabled: true still works
+# 4. **Cleaner YAML**: Focus on what you want, not boilerplate
+# 5. **Easier Migration**: Existing configs continue to work
+# 6. **Better DX**: Developer experience is more streamlined
+
+# Migration Guide:
+# OLD (Verbose):
+# observability:
+#   metrics:
+#     enabled: true
+#     cardinality: LOW
+#   logging:
+#     enabled: true
+#     mdcKey: "custom.key"
+#
+# NEW (Implicit):
+# observability:
+#   metrics:
+#     cardinality: LOW      # enabled: true is implied
+#   logging:
+#     mdcKey: "custom.key"  # enabled: true is implied

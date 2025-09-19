@@ -2,9 +2,12 @@ package com.example.demo.service;
 
 import com.example.demo.config.RequestContext;
 import com.example.demo.config.props.RequestContextProperties;
+import com.example.demo.config.props.RequestContextProperties.EnrichmentType;
 import com.example.demo.config.props.RequestContextProperties.FieldConfiguration;
 import com.example.demo.config.props.RequestContextProperties.OutboundConfig;
-import com.example.demo.config.props.RequestContextProperties.EnrichmentType;
+import com.example.demo.util.MaskingHelper;
+import lombok.Getter;
+import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 
@@ -18,15 +21,13 @@ import java.util.Map;
  * Handles enrichment operations for RequestContext
  * Provides extraction and transformation capabilities for outbound propagation
  */
-@Component
 @Slf4j
+@Component
+@RequiredArgsConstructor
 public class RequestContextEnricher {
 
     private final RequestContextProperties properties;
-
-    public RequestContextEnricher(RequestContextProperties properties) {
-        this.properties = properties;
-    }
+    private final MaskingHelper maskingHelper;
 
     /**
      * Extract values from context for downstream propagation
@@ -214,13 +215,10 @@ public class RequestContextEnricher {
                 fieldConfig.getSecurity().isSensitive();
     }
 
-    // ========================================
-    // Data Classes
-    // ========================================
-
     /**
      * Data structure for propagation information
      */
+    @Getter
     public static class PropagationData {
         private final EnrichmentType enrichmentType;
         private final String key;
@@ -240,112 +238,20 @@ public class RequestContextEnricher {
             this.maskingPattern = maskingPattern != null ? maskingPattern : "***";
         }
 
-        public EnrichmentType getEnrichmentType() { return enrichmentType; }
-        public String getKey() { return key; }
-        public String getValue() { return value; }
-        public boolean isSensitive() { return sensitive; }
-        public String getMaskingPattern() { return maskingPattern; }
-
-        public String getMaskedValue() {
+        public String getMaskedValue(MaskingHelper maskingHelper) {
             if (!sensitive || value == null) {
                 return value;
             }
 
-            // Apply custom masking pattern
-            return applyMaskingPattern(value, maskingPattern);
-        }
-
-        /**
-         * Apply masking pattern to value
-         * Supports patterns like:
-         * - "***" (simple masking)
-         * - "*-4" (show last 4 characters)
-         * - "****-****-****-{4}" (show last 4 with formatting)
-         * - "{8}***" (show first 8 characters)
-         * - "***@***.***" (email masking)
-         */
-        private String applyMaskingPattern(String value, String pattern) {
-            if (value == null || value.isEmpty() || pattern == null) {
-                return "***";
-            }
-
-            // Handle advanced patterns with {n} syntax
-            if (pattern.contains("{") && pattern.contains("}")) {
-                return applyAdvancedPattern(value, pattern);
-            }
-
-            // Handle email masking
-            if (pattern.contains("@") && value.contains("@")) {
-                return applyEmailPattern(value, pattern);
-            }
-
-            // Handle legacy *-n pattern
-            if (pattern.startsWith("*-")) {
-                return applyLegacyPattern(value, pattern);
-            }
-
-            // Default: return pattern as-is
-            return pattern;
-        }
-
-        private String applyAdvancedPattern(String value, String pattern) {
-            try {
-                // Simple implementation for common patterns
-                if (pattern.endsWith("{4}")) {
-                    // Show last 4 characters
-                    int showChars = 4;
-                    if (value.length() > showChars) {
-                        String prefix = pattern.substring(0, pattern.indexOf("{"));
-                        return prefix + value.substring(value.length() - showChars);
-                    }
-                } else if (pattern.startsWith("{")) {
-                    // Show first n characters
-                    int endBrace = pattern.indexOf("}");
-                    if (endBrace > 1) {
-                        int showChars = Integer.parseInt(pattern.substring(1, endBrace));
-                        if (value.length() > showChars) {
-                            String suffix = pattern.substring(endBrace + 1);
-                            return value.substring(0, showChars) + suffix;
-                        }
-                    }
-                }
-            } catch (Exception e) {
-                // Fallback to simple masking
-            }
-            return "***";
-        }
-
-        private String applyEmailPattern(String value, String pattern) {
-            int atIndex = value.indexOf("@");
-            if (atIndex > 0) {
-                if (pattern.equals("***@***.***")) {
-                    return "***@***.***";
-                }
-                // More sophisticated email masking could be added here
-                return value.charAt(0) + "***@***.***";
-            }
-            return "***";
-        }
-
-        private String applyLegacyPattern(String value, String pattern) {
-            String[] parts = pattern.split("-");
-            if (parts.length > 1) {
-                try {
-                    int showChars = Integer.parseInt(parts[1]);
-                    if (value.length() > showChars) {
-                        return "***" + value.substring(value.length() - showChars);
-                    }
-                } catch (NumberFormatException e) {
-                    // Fallback
-                }
-            }
-            return "***";
+            // Use MaskingHelper for consistent masking
+            return maskingHelper.maskValue(value, maskingPattern);
         }
 
         @Override
         public String toString() {
             return String.format("PropagationData{type=%s, key='%s', value='%s', sensitive=%s, pattern='%s'}",
-                    enrichmentType, key, getMaskedValue(), sensitive, maskingPattern);
+                    enrichmentType, key, sensitive ? "***" : value, sensitive, maskingPattern);
         }
+
     }
 }

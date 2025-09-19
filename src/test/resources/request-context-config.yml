@@ -1,0 +1,576 @@
+# Test Configuration Patterns - Based on your application-test.yml
+# This recreates the various configuration patterns you're using
+
+request-context:
+  fields:
+    
+    # ========================================
+    # PATTERN 1: Basic Bidirectional Propagation
+    # ========================================
+    # Extract from upstream + propagate downstream
+    
+    headerId1:
+      upstream:
+        inbound:
+          source: "HEADER"
+          key: "X-HEADER-ID-1"
+        outbound:
+          enrichAs: "HEADER"
+          key: "X-HEADER-ID-1"
+      downstream:
+        outbound:
+          enrichAs: "HEADER"
+          key: "X-HEADER-ID-1"
+
+    headerId2:
+      upstream:
+        inbound:
+          source: "HEADER"
+          key: "X-HEADER-ID-2"
+        outbound:
+          enrichAs: "HEADER"
+          key: "X-HEADER-ID-2"
+      downstream:
+        outbound:
+          enrichAs: "HEADER"
+          key: "X-HEADER-ID-2"
+    
+    # ========================================
+    # PATTERN 2: With Default Values
+    # ========================================
+    # Provides fallback when source value is missing
+    
+    headerId3:
+      upstream:
+        inbound:
+          source: "HEADER"
+          key: "X-HEADER-ID-3"
+          defaultValue: "default-header-3"
+        outbound:
+          enrichAs: "HEADER"
+          key: "X-HEADER-ID-3"
+      downstream:
+        outbound:
+          enrichAs: "HEADER"
+          key: "X-HEADER-ID-3"
+
+    headerId4:
+      upstream:
+        inbound:
+          source: "HEADER"
+          key: "X-HEADER-ID-4"
+          defaultValue: "default-header-4"
+        outbound:
+          enrichAs: "HEADER"
+          key: "X-HEADER-ID-4"
+      downstream:
+        outbound:
+          enrichAs: "HEADER"
+          key: "X-HEADER-ID-4"
+
+    headerId7:
+      upstream:
+        inbound:
+          source: "HEADER"
+          key: "HEADER-ID-7"
+          defaultValue: "anonymous-user"
+        # No outbound = extract-only, no propagation
+    
+    # ========================================
+    # PATTERN 3: Extract-Only (No Propagation)
+    # ========================================
+    # Fields that are captured but not forwarded downstream
+    
+    emailHeader:
+      upstream:
+        inbound:
+          source: "HEADER"
+          key: "X-User-Email"
+          required: false
+        # No outbound section = stays local
+      security:
+        sensitive: true
+        masking: "***@***.***"
+    
+    # ========================================
+    # PATTERN 4: Sensitive with Custom Masking
+    # ========================================
+    # Fields that propagate but are masked in logs
+    
+    sensitiveHeader:
+      upstream:
+        inbound:
+          source: "HEADER"
+          key: "X-Sensitive-Data"
+          required: false
+        outbound:
+          enrichAs: "HEADER"
+          key: "X-Sensitive-Data"
+      downstream:
+        outbound:
+          enrichAs: "HEADER"
+          key: "X-Sensitive-Data"
+      security:
+        sensitive: true
+        masking: "*-4"  # Show last 4 characters
+    
+    # ========================================
+    # PATTERN 5: Cookie Sources
+    # ========================================
+    
+    cookieId1:
+      upstream:
+        inbound:
+          source: "COOKIE"
+          key: "session-id"
+        outbound:
+          enrichAs: "COOKIE"
+          key: "session-id"
+      # Note: Cookies are upstream-only, no downstream propagation
+
+    cookieId2:
+      upstream:
+        inbound:
+          source: "COOKIE"
+          key: "user-pref"
+          defaultValue: "session-guest"
+        outbound:
+          enrichAs: "COOKIE"
+          key: "user-pref"
+      # Note: Cookies are upstream-only, no downstream propagation
+    
+    # ========================================
+    # PATTERN 6: Query Parameters
+    # ========================================
+    
+    queryId1:
+      upstream:
+        inbound:
+          source: "QUERY"
+          key: "version"
+        outbound:
+          enrichAs: "QUERY"
+          key: "version"
+      downstream:
+        outbound:
+          enrichAs: "QUERY"
+          key: "version"
+
+    queryId2:
+      upstream:
+        inbound:
+          source: "QUERY"
+          key: "format"
+          defaultValue: "default-query"
+        outbound:
+          enrichAs: "QUERY"
+          key: "format"
+      downstream:
+        outbound:
+          enrichAs: "QUERY"
+          key: "format"
+    
+    queryId5:
+      upstream:
+        inbound:
+          source: "QUERY"
+          key: "scope"
+          defaultValue: "all"
+        # No outbound = extract-only
+    
+    # ========================================
+    # PATTERN 7: Session Attributes
+    # ========================================
+    
+    sessionId:
+      upstream:
+        inbound:
+          source: "SESSION"
+          key: "user.session.id"
+        outbound:
+          enrichAs: "SESSION"
+          key: "user.session.id"
+      security:
+        sensitive: true
+        masking: "***"
+    
+    # ========================================
+    # PATTERN 8: JWT Claims (Extract-Only)
+    # ========================================
+    
+    userId:
+      upstream:
+        inbound:
+          source: "CLAIM"
+          key: "sub"
+          defaultValue: "anonymous"
+      security:
+        sensitive: true
+        masking: "***"
+    
+    userEmail:
+      upstream:
+        inbound:
+          source: "CLAIM"
+          key: "user.email"
+      security:
+        sensitive: true
+        masking: "***@***.***"
+    
+    userRole:
+      upstream:
+        inbound:
+          source: "CLAIM"
+          key: "roles"
+          defaultValue: "user"
+    
+    # ========================================
+    # PATTERN 9: Generated Values
+    # ========================================
+    
+    requestId:
+      upstream:
+        inbound:
+          source: "HEADER"
+          key: "X-Request-ID"
+          generateIfAbsent: true
+          generator: "UUID"
+        outbound:
+          enrichAs: "HEADER"
+          key: "X-Request-ID"
+      downstream:
+        outbound:
+          enrichAs: "HEADER"
+          key: "X-Request-ID"
+    
+    # ========================================
+    # PATTERN 10: Fallback Chains
+    # ========================================
+    
+    tenantId:
+      upstream:
+        inbound:
+          source: "HEADER"
+          key: "X-Tenant-ID"
+          fallback:
+            source: "QUERY"
+            key: "tenant"
+            fallback:
+              source: "CLAIM"
+              key: "tenant"
+              defaultValue: "default-tenant"
+        outbound:
+          enrichAs: "HEADER"
+          key: "X-Tenant-ID"
+      downstream:
+        outbound:
+          enrichAs: "HEADER"
+          key: "X-Tenant-ID"
+    
+    # ========================================
+    # PATTERN 11: Different Enrichment Types
+    # ========================================
+    
+    # Extract from header, propagate as query param
+    apiKey:
+      upstream:
+        inbound:
+          source: "HEADER"
+          key: "X-API-Key"
+        outbound:
+          enrichAs: "QUERY"
+          key: "api_key"
+      downstream:
+        outbound:
+          enrichAs: "QUERY"
+          key: "api_key"
+      security:
+        sensitive: true
+        masking: "*-8"
+
+    # Extract from query, propagate as header
+    clientVersion:
+      upstream:
+        inbound:
+          source: "QUERY"
+          key: "client_version"
+          defaultValue: "1.0"
+        outbound:
+          enrichAs: "HEADER"
+          key: "X-Client-Version"
+      downstream:
+        outbound:
+          enrichAs: "HEADER"
+          key: "X-Client-Version"
+    
+    # ========================================
+    # PATTERN 12: Downstream Response Extraction
+    # ========================================
+    # Extract values from downstream service responses
+
+    # Extract response headers from downstream services
+    downstreamServiceVersion:
+      upstream:
+        inbound:
+          source: "HEADER"
+          key: "X-Request-ID"  # Need upstream context for correlation
+          generateIfAbsent: true
+          generator: "UUID"
+        outbound:
+          enrichAs: "HEADER"
+          key: "X-Request-ID"
+      downstream:
+        inbound:
+          source: "HEADER"
+          key: "X-Service-Version"
+      observability:
+        includeInMetrics: true
+        metricName: "downstream_service_version"
+
+    # Extract response status for monitoring
+    downstreamResponseStatus:
+      upstream:
+        inbound:
+          source: "HEADER"
+          key: "X-Request-ID"
+          generateIfAbsent: true
+          generator: "UUID"
+        outbound:
+          enrichAs: "HEADER"
+          key: "X-Request-ID"
+      downstream:
+        inbound:
+          source: "HEADER"
+          key: "X-Response-Status"
+      observability:
+        includeInMetrics: true
+        metricName: "downstream_response_status"
+
+    # Extract rate limit headers from downstream
+    rateLimitRemaining:
+      upstream:
+        inbound:
+          source: "HEADER"
+          key: "X-Client-ID"  # Client context for rate limiting
+        outbound:
+          enrichAs: "HEADER"
+          key: "X-Client-ID"
+      downstream:
+        inbound:
+          source: "HEADER"
+          key: "X-RateLimit-Remaining"
+      observability:
+        includeInMetrics: true
+        metricName: "rate_limit_remaining"
+
+    # Extract response time from downstream
+    downstreamResponseTime:
+      upstream:
+        inbound:
+          source: "HEADER"
+          key: "X-Request-ID"
+          generateIfAbsent: true
+          generator: "UUID"
+        outbound:
+          enrichAs: "HEADER"
+          key: "X-Request-ID"
+      downstream:
+        inbound:
+          source: "HEADER"
+          key: "X-Response-Time"
+      observability:
+        includeInMetrics: true
+        metricName: "downstream_response_time_ms"
+
+    # Extract error codes from downstream responses
+    downstreamErrorCode:
+      upstream:
+        inbound:
+          source: "HEADER"
+          key: "X-Request-ID"
+          generateIfAbsent: true
+          generator: "UUID"
+        outbound:
+          enrichAs: "HEADER"
+          key: "X-Request-ID"
+      downstream:
+        inbound:
+          source: "HEADER"
+          key: "X-Error-Code"
+          required: false
+      observability:
+        includeInLogs: true
+
+    # ========================================
+    # PATTERN 13: Bidirectional with Downstream
+    # ========================================
+    # Full lifecycle: upstream extract + downstream propagate + downstream extract
+
+    correlationId:
+      upstream:
+        inbound:
+          source: "HEADER"
+          key: "X-Correlation-ID"
+          generateIfAbsent: true
+          generator: "UUID"
+        outbound:
+          enrichAs: "HEADER"
+          key: "X-Correlation-ID"
+      downstream:
+        inbound:
+          source: "HEADER"
+          key: "X-Correlation-ID"
+      observability:
+        includeInTracing: true
+        tracingKey: "correlation.id"
+
+    # ========================================
+    # PATTERN 14: Observability Fields
+    # ========================================
+
+    # Metrics field
+    applicationId:
+      upstream:
+        inbound:
+          source: "HEADER"
+          key: "X-Application-ID"
+        outbound:
+          enrichAs: "HEADER"
+          key: "X-Application-ID"
+      observability:
+        includeInMetrics: true
+        metricName: "application_requests"
+
+    # Logging field
+    clientId:
+      upstream:
+        inbound:
+          source: "HEADER"
+          key: "X-Client-ID"
+        outbound:
+          enrichAs: "HEADER"
+          key: "X-Client-ID"
+      observability:
+        includeInLogs: true
+
+    # Tracing field
+    traceId:
+      upstream:
+        inbound:
+          source: "HEADER"
+          key: "X-Trace-ID"
+          generateIfAbsent: true
+          generator: "UUID"
+        outbound:
+          enrichAs: "HEADER"
+          key: "X-Trace-ID"
+      observability:
+        includeInTracing: true
+        tracingKey: "trace.id"
+
+# ========================================
+# PATTERN 15: Downstream Monitoring with Context
+# ========================================
+# All downstream extraction requires upstream context for correlation
+
+    # Service health indicators with request context
+    serviceHealth:
+      upstream:
+        inbound:
+          source: "HEADER"
+          key: "X-Service-Name"  # Which service to monitor
+          defaultValue: "unknown-service"
+        outbound:
+          enrichAs: "HEADER"
+          key: "X-Service-Name"
+      downstream:
+        outbound:
+          enrichAs: "HEADER"
+          key: "X-Service-Name"
+        inbound:
+          source: "HEADER"
+          key: "X-Health-Status"
+          defaultValue: "unknown"
+      observability:
+        includeInMetrics: true
+        metricName: "service_health"
+
+    # Cache hit/miss tracking with user context
+    cacheStatus:
+      upstream:
+        inbound:
+          source: "HEADER"
+          key: "X-User-ID"  # User context for cache analysis
+        outbound:
+          enrichAs: "HEADER"
+          key: "X-User-ID"
+      downstream:
+        outbound:
+          enrichAs: "HEADER"
+          key: "X-User-ID"
+        inbound:
+          source: "HEADER"
+          key: "X-Cache-Status"
+      observability:
+        includeInMetrics: true
+        metricName: "cache_hit_rate"
+
+    # Database query time with operation context
+    dbQueryTime:
+      upstream:
+        inbound:
+          source: "HEADER"
+          key: "X-Operation"  # Operation context for DB metrics
+          defaultValue: "unknown-operation"
+        outbound:
+          enrichAs: "HEADER"
+          key: "X-Operation"
+      downstream:
+        inbound:
+          source: "HEADER"
+          key: "X-DB-Query-Time"
+      observability:
+        includeInMetrics: true
+        metricName: "db_query_duration_ms"
+
+    # Feature flags with user context
+    featureFlags:
+      upstream:
+        inbound:
+          source: "HEADER"
+          key: "X-User-Segment"  # User segment for feature flags
+          defaultValue: "default"
+        outbound:
+          enrichAs: "HEADER"
+          key: "X-User-Segment"
+      downstream:
+        outbound:
+          enrichAs: "HEADER"
+          key: "X-User-Segment"
+        inbound:
+          source: "HEADER"
+          key: "X-Feature-Flags"
+      observability:
+        includeInLogs: true
+
+    # Security warnings with request context
+    securityWarnings:
+      upstream:
+        inbound:
+          source: "HEADER"
+          key: "X-Request-ID"
+          generateIfAbsent: true
+          generator: "UUID"
+        outbound:
+          enrichAs: "HEADER"
+          key: "X-Request-ID"
+      downstream:
+        inbound:
+          source: "HEADER"
+          key: "X-Security-Warning"
+          required: false
+      security:
+        sensitive: true
+        masking: "***"
+      observability:
+        includeInLogs: true

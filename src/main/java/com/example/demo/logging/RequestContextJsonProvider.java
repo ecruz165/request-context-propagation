@@ -2,22 +2,30 @@ package com.example.demo.logging;
 
 import ch.qos.logback.classic.spi.ILoggingEvent;
 import com.example.demo.config.RequestContext;
+import com.example.demo.observability.SpanTagBuilderHelper;
+import com.example.demo.service.RequestContextService;
 import com.fasterxml.jackson.core.JsonGenerator;
 import net.logstash.logback.composite.AbstractFieldJsonProvider;
+import org.springframework.context.ApplicationContext;
+import org.springframework.context.ApplicationContextAware;
 
 import java.io.IOException;
+import java.util.HashMap;
 import java.util.Map;
 import java.util.Optional;
 
 /**
  * Custom JSON provider that adds structured request context fields to logs
- * This provider extracts context from both MDC and RequestContext
+ * This provider extracts context from both MDC and RequestContext and supports
+ * nested JSON organization for logical grouping (e.g., principal.*, org.*, request.*)
  */
-public class RequestContextJsonProvider extends AbstractFieldJsonProvider<ILoggingEvent> {
+public class RequestContextJsonProvider extends AbstractFieldJsonProvider<ILoggingEvent> implements ApplicationContextAware {
 
     public static final String FIELD_REQUEST_CONTEXT = "request_context";
 
     private String fieldName = FIELD_REQUEST_CONTEXT;
+    private ApplicationContext applicationContext;
+    private RequestContextService requestContextService;
 
     @Override
     public void writeTo(JsonGenerator generator, ILoggingEvent event) throws IOException {
@@ -31,40 +39,51 @@ public class RequestContextJsonProvider extends AbstractFieldJsonProvider<ILoggi
             generator.writeFieldName(fieldName);
             generator.writeStartObject();
 
-            // Write MDC context fields
-            if (mdcContext != null && !mdcContext.isEmpty()) {
-                for (Map.Entry<String, String> entry : mdcContext.entrySet()) {
-                    String key = entry.getKey();
-                    String value = entry.getValue();
+            // Collect all context fields for intelligent grouping
+            Map<String, String> allContextFields = new HashMap<>();
 
-                    if (value != null && !value.isEmpty()) {
-                        // Convert snake_case to camelCase for JSON consistency
-                        String jsonKey = convertToJsonKey(key);
-                        generator.writeStringField(jsonKey, value);
+            // Add MDC context fields
+            if (mdcContext != null && !mdcContext.isEmpty()) {
+                allContextFields.putAll(mdcContext);
+            }
+
+            // Add additional context from RequestContext if available
+            if (contextOpt.isPresent()) {
+                RequestContext context = contextOpt.get();
+                Map<String, String> allValues = context.getAllValues();
+
+                // Add fields that are configured for logging but might not be in MDC
+                if (requestContextService != null) {
+                    // Get logging fields with their custom MDC keys
+                    Map<String, String> loggingFields = new HashMap<>();
+                    for (String fieldName : requestContextService.getAllLoggingFields()) {
+                        String value = context.getMaskedOrOriginal(fieldName);
+                        if (value != null && !value.isEmpty()) {
+                            String mdcKey = requestContextService.getLoggingMdcKey(fieldName);
+                            loggingFields.put(mdcKey, value);
+                        }
+                    }
+                    allContextFields.putAll(loggingFields);
+                } else {
+                    // Fallback: add all values not already in MDC
+                    for (Map.Entry<String, String> entry : allValues.entrySet()) {
+                        String key = entry.getKey();
+                        String value = entry.getValue();
+                        if (value != null && !value.isEmpty() && !allContextFields.containsKey(key)) {
+                            allContextFields.put(key, value);
+                        }
                     }
                 }
             }
 
-            // Write additional context from RequestContext if available
+            // Build nested structure from collected fields
+            if (!allContextFields.isEmpty()) {
+                writeNestedFields(generator, allContextFields);
+            }
+
+            // Add metadata if RequestContext is available
             if (contextOpt.isPresent()) {
-                RequestContext context = contextOpt.get();
-
-                // Add any additional fields that might not be in MDC
-                Map<String, String> allValues = context.getAllValues();
-                for (Map.Entry<String, String> entry : allValues.entrySet()) {
-                    String key = entry.getKey();
-                    String value = entry.getValue();
-
-                    // Only add if not already in MDC
-                    if (value != null && !value.isEmpty() &&
-                        (mdcContext == null || !mdcContext.containsKey(key))) {
-                        String jsonKey = convertToJsonKey(key);
-                        generator.writeStringField(jsonKey, value);
-                    }
-                }
-
-                // Add metadata
-                generator.writeNumberField("contextFieldCount", context.getAllValues().size());
+                generator.writeNumberField("contextFieldCount", contextOpt.get().getAllValues().size());
             }
 
             generator.writeEndObject();
@@ -97,6 +116,54 @@ public class RequestContextJsonProvider extends AbstractFieldJsonProvider<ILoggi
         }
         
         return key;
+    }
+
+    /**
+     * Writes nested fields to JSON generator based on dot notation in keys
+     */
+    private void writeNestedFields(JsonGenerator generator, Map<String, String> fields) throws IOException {
+        // Build nested structure from flat keys
+        Map<String, Object> nestedStructure = SpanTagBuilderHelper.buildNestedTags(fields);
+
+        // Write the nested structure to JSON
+        writeNestedObject(generator, nestedStructure);
+    }
+
+    /**
+     * Recursively writes nested objects to JSON generator
+     */
+    @SuppressWarnings("unchecked")
+    private void writeNestedObject(JsonGenerator generator, Map<String, Object> nestedMap) throws IOException {
+        for (Map.Entry<String, Object> entry : nestedMap.entrySet()) {
+            String key = entry.getKey();
+            Object value = entry.getValue();
+
+            // Convert key to JSON-friendly format
+            String jsonKey = convertToJsonKey(key);
+
+            if (value instanceof Map) {
+                // Nested object
+                generator.writeFieldName(jsonKey);
+                generator.writeStartObject();
+                writeNestedObject(generator, (Map<String, Object>) value);
+                generator.writeEndObject();
+            } else {
+                // Simple value
+                generator.writeStringField(jsonKey, value.toString());
+            }
+        }
+    }
+
+
+
+    @Override
+    public void setApplicationContext(ApplicationContext applicationContext) {
+        this.applicationContext = applicationContext;
+        try {
+            this.requestContextService = applicationContext.getBean(RequestContextService.class);
+        } catch (Exception e) {
+            // Service not available, will use fallback behavior
+        }
     }
 
     public String getFieldName() {

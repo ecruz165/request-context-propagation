@@ -19,11 +19,11 @@ import java.util.Optional;
  */
 @Component
 @Slf4j
-public class RequestContextLoggingWebClientFilter {
+public class RequestContextWebClientLoggingFilter {
 
     private final RequestContextProperties properties;
 
-    public RequestContextLoggingWebClientFilter(RequestContextProperties properties) {
+    public RequestContextWebClientLoggingFilter(RequestContextProperties properties) {
         this.properties = properties;
     }
 
@@ -42,15 +42,17 @@ public class RequestContextLoggingWebClientFilter {
         // Enrich MDC with RequestContext fields
         enrichMDC();
 
-        // Store start time for duration calculation
-        request.attributes().put("request.startTime", Instant.now());
+        // Create a new request with start time attribute (request.attributes() is unmodifiable)
+        ClientRequest enrichedRequest = ClientRequest.from(request)
+                .attribute("request.startTime", Instant.now())
+                .build();
 
         // Simple log with MDC context (MDC fields will be included by log appender)
         log.info("→ WebClient Request: {} {}",
-                request.method(),
-                request.url());
+                enrichedRequest.method(),
+                enrichedRequest.url());
 
-        return Mono.just(request);
+        return Mono.just(enrichedRequest);
     }
 
     /**
@@ -62,11 +64,6 @@ public class RequestContextLoggingWebClientFilter {
 
         // Calculate duration
         long duration = 0;
-        // Note: attributes() method not available in this version
-        // if (response.request().attributes().get("request.startTime") instanceof Instant startTime) {
-        //     duration = Duration.between(startTime, Instant.now()).toMillis();
-        //     MDC.put("duration_ms", String.valueOf(duration));
-        // }
 
         // Log based on status - MDC fields will be included automatically
         if (response.statusCode().is2xxSuccessful()) {
@@ -122,12 +119,6 @@ public class RequestContextLoggingWebClientFilter {
                 }
             }
         });
-
-        // Always add core fields if present
-        addToMdcIfPresent(context, "requestId", "request_id");
-        addToMdcIfPresent(context, "correlationId", "correlation_id");
-        addToMdcIfPresent(context, "handler", "handler");
-        addToMdcIfPresent(context, "principal", "user");
     }
 
     /**
@@ -159,13 +150,5 @@ public class RequestContextLoggingWebClientFilter {
                 fieldConfig.getSecurity().isSensitive();
     }
 
-    /**
-     * Add field to MDC if present in context
-     */
-    private void addToMdcIfPresent(RequestContext context, String fieldName, String mdcKey) {
-        String value = context.get(fieldName);
-        if (value != null) {
-            MDC.put(mdcKey, value);
-        }
-    }
+
 }

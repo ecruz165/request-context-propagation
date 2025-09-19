@@ -18,19 +18,4 @@ public class RequestContextObservabilityConfig {
         return new ObservedAspect(observationRegistry);
     }
 
-    // Disabled for Spring Boot 3 compatibility
-    /*
-    @Bean
-    public ServerHttpObservationFilter serverHttpObservationFilter(
-            ObservationRegistry observationRegistry,
-            RequestContextObservationConvention convention) {
-
-        ServerHttpObservationFilter filter = new ServerHttpObservationFilter(observationRegistry);
-        filter.setObservationConvention(convention);
-        return filter;
-    }
-    */
-
-    // Note: WebMvcTagsProvider is not available in Spring Boot 3
-    // Custom metrics integration would need to be implemented differently
 }

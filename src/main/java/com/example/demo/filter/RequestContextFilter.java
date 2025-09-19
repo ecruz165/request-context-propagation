@@ -5,9 +5,7 @@ package com.example.demo.filter;
 // ============================================
 
 import com.example.demo.config.RequestContext;
-import com.example.demo.config.props.RequestContextProperties;
 import com.example.demo.service.RequestContextService;
-import com.example.demo.util.CachedBodyHttpServletRequest;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
@@ -31,7 +29,6 @@ import java.io.IOException;
 public class RequestContextFilter extends OncePerRequestFilter implements Ordered {
 
     private final RequestContextService contextService;
-    private final RequestContextProperties properties;
     private final int order = Ordered.HIGHEST_PRECEDENCE + 1;
 
     @Override
@@ -47,22 +44,16 @@ public class RequestContextFilter extends OncePerRequestFilter implements Ordere
         long startTime = System.currentTimeMillis();
 
         try {
-            // Wrap request with cached body if BODY sources are configured
-            HttpServletRequest processedRequest = wrapRequestIfNeeded(request);
-
             // Initialize context using service (which uses extractor internally)
-            RequestContext context = contextService.initializeContext(processedRequest);
-
-            // Add request start time for duration calculation
-            context.put("requestStartTime", String.valueOf(startTime));
+            RequestContext context = contextService.initializeContext(request);
 
             log.debug("RequestContext initialized for {} {} with {} fields",
-                    processedRequest.getMethod(),
-                    processedRequest.getRequestURI(),
+                    request.getMethod(),
+                    request.getRequestURI(),
                     context.size());
 
             // Continue with filter chain
-            filterChain.doFilter(processedRequest, response);
+            filterChain.doFilter(request, response);
 
         } finally {
             try {
@@ -71,12 +62,10 @@ public class RequestContextFilter extends OncePerRequestFilter implements Ordere
 
                 // Get context to log final state
                 RequestContext.getFromRequest(request).ifPresent(context -> {
-                    context.put("requestDuration", String.valueOf(duration));
-
                     // Log request completion with context summary
                     if (log.isInfoEnabled()) {
                         String summary = contextService.getContextSummary(context);
-                        log.info("Request completed: {} {} [{}ms] - {}",
+                        log.debug("Request completed: {} {} [{}ms] - {}",
                                 request.getMethod(),
                                 request.getRequestURI(),
                                 duration,
@@ -91,43 +80,13 @@ public class RequestContextFilter extends OncePerRequestFilter implements Ordere
         }
     }
 
-    /**
-     * Wrap the request with cached body wrapper if BODY sources are configured
-     */
-    private HttpServletRequest wrapRequestIfNeeded(HttpServletRequest request) {
-        // Check if any BODY sources are configured
-        boolean hasBodySources = properties.getFields().values().stream()
-                .filter(field -> field.getUpstream() != null && field.getUpstream().getInbound() != null)
-                .anyMatch(field -> field.getUpstream().getInbound().getSource() == RequestContextProperties.SourceType.BODY);
 
-        if (hasBodySources && isJsonRequest(request)) {
-            try {
-                return new CachedBodyHttpServletRequest(request);
-            } catch (IOException e) {
-                log.warn("Failed to wrap request with cached body: {}", e.getMessage());
-                return request;
-            }
-        }
-
-        return request;
-    }
-
-    /**
-     * Check if the request has JSON content type
-     */
-    private boolean isJsonRequest(HttpServletRequest request) {
-        String contentType = request.getContentType();
-        return contentType != null && contentType.contains("application/json");
-    }
 
     @Override
     protected boolean shouldNotFilter(HttpServletRequest request) throws ServletException {
-        // Could check for excluded patterns here if needed
         String path = request.getRequestURI();
 
-        // Example: skip filter for static resources
-        return path.startsWith("/static/") ||
-                path.startsWith("/favicon.ico") ||
-                path.startsWith("/actuator/health");
+        // Use service to check exclusion patterns
+        return contextService.shouldExcludeFromFiltering(path);
     }
 }

@@ -4,6 +4,7 @@ package com.example.demo.filter;
 import com.example.demo.config.RequestContext;
 import com.example.demo.service.RequestContextEnricher;
 import com.example.demo.service.RequestContextEnricher.PropagationData;
+import com.example.demo.util.MaskingHelper;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 import org.springframework.web.reactive.function.client.ClientRequest;
@@ -21,14 +22,20 @@ import java.util.Optional;
  */
 @Component
 @Slf4j
-public class RequestContextPropagationWebClientFilter {
+public class RequestContextWebClientPropagationFilter {
 
     private final RequestContextEnricher enricher;
+    private final MaskingHelper maskingHelper;
+    private final com.example.demo.service.source.SourceHandlers sourceHandlers;
     private static final String DEFAULT_REQUEST_ID_HEADER = "X-Request-Id";
     private static final String DEFAULT_CORRELATION_ID_HEADER = "X-Correlation-Id";
 
-    public RequestContextPropagationWebClientFilter(RequestContextEnricher enricher) {
+    public RequestContextWebClientPropagationFilter(RequestContextEnricher enricher,
+                                                    MaskingHelper maskingHelper,
+                                                    com.example.demo.service.source.SourceHandlers sourceHandlers) {
         this.enricher = enricher;
+        this.maskingHelper = maskingHelper;
+        this.sourceHandlers = sourceHandlers;
     }
 
     /**
@@ -95,39 +102,25 @@ public class RequestContextPropagationWebClientFilter {
     }
 
     /**
-     * Apply propagation data to the request builder
+     * Apply propagation data to the request builder using unified source handler strategy
      */
     private void applyPropagationData(ClientRequest.Builder requestBuilder, PropagationData data, String fieldName) {
         try {
-            switch (data.getEnrichmentType()) {
-                case HEADER:
-                    requestBuilder.header(data.getKey(), data.getValue());
-                    log.debug("Added downstream header {} = {} for field {}",
-                            data.getKey(), data.getMaskedValue(), fieldName);
-                    break;
+            // Use the unified source handler strategy pattern
+            sourceHandlers.enrichDownstreamRequest(
+                data.getEnrichmentType(),
+                requestBuilder,
+                data.getKey(),
+                data.getValue()
+            );
 
-                case QUERY:
-                    // Note: Query parameters need special handling in WebClient
-                    requestBuilder.attribute("queryParam." + data.getKey(), data.getValue());
-                    log.debug("Added query parameter {} = {} for field {}",
-                            data.getKey(), data.getValue(), fieldName);
-                    break;
+            // Log with masking where appropriate
+            log.debug("Applied downstream {} enrichment {} = {} for field {}",
+                    data.getEnrichmentType(),
+                    data.getKey(),
+                    data.getMaskedValue(maskingHelper),
+                    fieldName);
 
-                case COOKIE:
-                    requestBuilder.cookie(data.getKey(), data.getValue());
-                    log.debug("Added cookie {} for field {}", data.getKey(), fieldName);
-                    break;
-
-                case ATTRIBUTE:
-                    requestBuilder.attribute(data.getKey(), data.getValue());
-                    log.debug("Added request attribute {} = {} for field {}",
-                            data.getKey(), data.getValue(), fieldName);
-                    break;
-
-                default:
-                    log.debug("Unsupported enrichment type {} for field {}",
-                            data.getEnrichmentType(), fieldName);
-            }
         } catch (Exception e) {
             log.error("Failed to apply propagation data for field {}: {}", fieldName, e.getMessage());
         }

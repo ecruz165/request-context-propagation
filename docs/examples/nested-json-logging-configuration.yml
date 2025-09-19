@@ -1,0 +1,214 @@
+# Example: Nested JSON Logging Configuration
+# This configuration demonstrates how to create logical organization in structured JSON logs
+
+request-context:
+  enabled: true
+  
+  fields:
+    # Example 1: Principal (User Identity) Grouping
+    userId:
+      upstream:
+        inbound:
+          source: "TOKEN"
+          key: "sub"
+      observability:
+        logging:
+          enabled: true
+          mdcKey: "principal.userId"  # Will create nested: {"principal": {"userId": "..."}}
+          useNestedJson: true
+    
+    userEmail:
+      upstream:
+        inbound:
+          source: "TOKEN"
+          key: "email"
+      observability:
+        logging:
+          enabled: true
+          mdcKey: "principal.email"  # Groups with other principal fields
+      security:
+        sensitive: true
+        masking: "***@***.***"
+    
+    userRole:
+      upstream:
+        inbound:
+          source: "TOKEN"
+          key: "role"
+      observability:
+        logging:
+          enabled: true
+          mdcKey: "principal.role"  # Groups with other principal fields
+    
+    # Example 2: Organization Context Grouping
+    partyId:
+      upstream:
+        inbound:
+          source: "HEADER"
+          key: "X-Party-ID"
+      observability:
+        logging:
+          enabled: true
+          mdcKey: "org.partyId"  # Will create nested: {"org": {"partyId": "..."}}
+    
+    tenantId:
+      upstream:
+        inbound:
+          source: "HEADER"
+          key: "X-Tenant-ID"
+      observability:
+        logging:
+          enabled: true
+          mdcKey: "org.tenantId"  # Groups with other org fields
+    
+    departmentId:
+      upstream:
+        inbound:
+          source: "HEADER"
+          key: "X-Department-ID"
+      observability:
+        logging:
+          enabled: true
+          mdcKey: "org.departmentId"  # Groups with other org fields
+    
+    # Example 3: Request Context Grouping
+    requestId:
+      upstream:
+        inbound:
+          source: "GENERATED"
+          generator: "UUID"
+      observability:
+        logging:
+          enabled: true
+          mdcKey: "request.id"  # Will create nested: {"request": {"id": "..."}}
+    
+    correlationId:
+      upstream:
+        inbound:
+          source: "HEADER"
+          key: "X-Correlation-ID"
+      observability:
+        logging:
+          enabled: true
+          mdcKey: "request.correlationId"  # Groups with other request fields
+    
+    sessionId:
+      upstream:
+        inbound:
+          source: "COOKIE"
+          key: "JSESSIONID"
+      observability:
+        logging:
+          enabled: true
+          mdcKey: "request.sessionId"  # Groups with other request fields
+      security:
+        sensitive: true
+        masking: "***-{4}"
+    
+    # Example 4: Business Context Grouping
+    applicationId:
+      upstream:
+        inbound:
+          source: "HEADER"
+          key: "X-Application-ID"
+      observability:
+        logging:
+          enabled: true
+          mdcKey: "business.applicationId"  # Will create nested: {"business": {"applicationId": "..."}}
+    
+    transactionType:
+      upstream:
+        inbound:
+          source: "QUERY"
+          key: "txnType"
+      observability:
+        logging:
+          enabled: true
+          mdcKey: "business.transactionType"  # Groups with other business fields
+    
+    productId:
+      upstream:
+        inbound:
+          source: "BODY"
+          key: "$.product.id"
+      observability:
+        logging:
+          enabled: true
+          mdcKey: "business.productId"  # Groups with other business fields
+    
+    # Example 5: Technical Context Grouping
+    apiVersion:
+      upstream:
+        inbound:
+          source: "HEADER"
+          key: "X-API-Version"
+          defaultValue: "v1"
+      observability:
+        logging:
+          enabled: true
+          mdcKey: "tech.apiVersion"  # Will create nested: {"tech": {"apiVersion": "..."}}
+    
+    clientVersion:
+      upstream:
+        inbound:
+          source: "HEADER"
+          key: "X-Client-Version"
+      observability:
+        logging:
+          enabled: true
+          mdcKey: "tech.clientVersion"  # Groups with other tech fields
+    
+    userAgent:
+      upstream:
+        inbound:
+          source: "HEADER"
+          key: "User-Agent"
+      observability:
+        logging:
+          enabled: true
+          mdcKey: "tech.userAgent"  # Groups with other tech fields
+
+# This configuration will result in JSON logs like:
+# {
+#   "@timestamp": "2024-01-15T10:30:45.123Z",
+#   "level": "INFO",
+#   "logger": "com.example.demo.controller.ApiController",
+#   "message": "Processing payment request",
+#   "context": {
+#     "principal": {
+#       "userId": "user123",
+#       "email": "***@***.***",
+#       "role": "admin"
+#     },
+#     "org": {
+#       "partyId": "party456",
+#       "tenantId": "acme-corp",
+#       "departmentId": "finance"
+#     },
+#     "request": {
+#       "id": "req-uuid-789",
+#       "correlationId": "corr-abc-123",
+#       "sessionId": "***-AB12"
+#     },
+#     "business": {
+#       "applicationId": "payment-app",
+#       "transactionType": "credit_card",
+#       "productId": "prod-456"
+#     },
+#     "tech": {
+#       "apiVersion": "v2",
+#       "clientVersion": "mobile-1.2.3",
+#       "userAgent": "MyApp/1.2.3 (iOS 15.0)"
+#     },
+#     "contextFieldCount": 15
+#   }
+# }
+#
+# Benefits of this nested structure:
+# 1. **Logical Grouping**: Related fields are grouped together
+# 2. **Easy Filtering**: Filter logs by namespace (e.g., context.principal.*)
+# 3. **Dashboard Organization**: Create dashboards by logical domains
+# 4. **Alert Configuration**: Set up alerts based on grouped context
+# 5. **Log Analysis**: Easier to analyze patterns by context groups
+# 6. **DataDog/ELK Integration**: Automatic field discovery and organization
+# 7. **Consistent Structure**: Same grouping across metrics, tracing, and logging

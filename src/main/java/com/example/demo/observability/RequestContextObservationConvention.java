@@ -1,10 +1,8 @@
 package com.example.demo.observability;
 
 import com.example.demo.config.RequestContext;
-import com.example.demo.config.props.RequestContextProperties;
 import com.example.demo.config.props.RequestContextProperties.CardinalityLevel;
-import com.example.demo.config.props.RequestContextProperties.FieldConfiguration;
-import com.example.demo.config.props.RequestContextProperties.MetricsConfig;
+import com.example.demo.service.RequestContextService;
 import io.micrometer.common.KeyValue;
 import io.micrometer.common.KeyValues;
 import io.micrometer.observation.Observation;
@@ -17,6 +15,7 @@ import org.springframework.stereotype.Component;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 
 /**
@@ -26,11 +25,11 @@ import java.util.Optional;
 @Slf4j
 public class RequestContextObservationConvention implements ServerRequestObservationConvention {
 
-    private final RequestContextProperties properties;
+    private final RequestContextService requestContextService;
     private final ServerRequestObservationConvention defaultConvention;
 
-    public RequestContextObservationConvention(RequestContextProperties properties) {
-        this.properties = properties;
+    public RequestContextObservationConvention(RequestContextService requestContextService) {
+        this.requestContextService = requestContextService;
         this.defaultConvention = new DefaultServerRequestObservationConvention();
     }
 
@@ -59,24 +58,10 @@ public class RequestContextObservationConvention implements ServerRequestObserva
         List<KeyValue> additionalKeyValues = new ArrayList<>();
 
         // Add low cardinality fields from RequestContext
-        properties.getFields().forEach((fieldName, fieldConfig) -> {
-            if (shouldIncludeInMetrics(fieldConfig, CardinalityLevel.LOW)) {
-                String value = requestContext.get(fieldName);
-                if (value != null) {
-                    // Use masked value for sensitive fields
-                    if (isSensitive(fieldConfig)) {
-                        value = requestContext.getMaskedOrOriginal(fieldName);
-                    }
-                    additionalKeyValues.add(KeyValue.of(fieldName, value));
-                }
-            }
-        });
-
-        // Add handler information if available
-        String handler = requestContext.get("handler");
-        if (handler != null) {
-            additionalKeyValues.add(KeyValue.of("handler", handler));
-        }
+        Map<String, String> lowCardinalityFields = requestContextService.getMetricsFields(requestContext, CardinalityLevel.LOW);
+        lowCardinalityFields.forEach((tagName, value) ->
+            additionalKeyValues.add(KeyValue.of(tagName, value))
+        );
 
         // Combine default and additional key values
         return defaultKeyValues.and(additionalKeyValues.toArray(new KeyValue[0]));
@@ -96,30 +81,17 @@ public class RequestContextObservationConvention implements ServerRequestObserva
         RequestContext requestContext = requestContextOpt.get();
         List<KeyValue> additionalKeyValues = new ArrayList<>();
 
-        // Always add request ID for tracing
-        String requestId = requestContext.get("requestId");
-        if (requestId != null) {
-            additionalKeyValues.add(KeyValue.of("request.id", requestId));
-        }
+        // Add medium cardinality fields
+        Map<String, String> mediumCardinalityFields = requestContextService.getMetricsFields(requestContext, CardinalityLevel.MEDIUM);
+        mediumCardinalityFields.forEach((tagName, value) ->
+            additionalKeyValues.add(KeyValue.of(tagName, value))
+        );
 
-        // Add medium and high cardinality fields
-        properties.getFields().forEach((fieldName, fieldConfig) -> {
-            CardinalityLevel cardinality = getCardinality(fieldConfig);
-            if (cardinality == CardinalityLevel.MEDIUM || cardinality == CardinalityLevel.HIGH) {
-                if (shouldIncludeInMetrics(fieldConfig, cardinality)) {
-                    String value = requestContext.get(fieldName);
-                    if (value != null && !isSensitive(fieldConfig)) {
-                        additionalKeyValues.add(KeyValue.of(fieldName, value));
-                    }
-                }
-            }
-        });
-
-        // Add principal if authenticated
-        String principal = requestContext.get("principal");
-        if (principal != null && !"anonymous".equals(principal)) {
-            additionalKeyValues.add(KeyValue.of("user", principal));
-        }
+        // Add high cardinality fields
+        Map<String, String> highCardinalityFields = requestContextService.getMetricsFields(requestContext, CardinalityLevel.HIGH);
+        highCardinalityFields.forEach((tagName, value) ->
+            additionalKeyValues.add(KeyValue.of(tagName, value))
+        );
 
         return defaultKeyValues.and(additionalKeyValues.toArray(new KeyValue[0]));
     }
@@ -134,43 +106,11 @@ public class RequestContextObservationConvention implements ServerRequestObserva
      */
     private Optional<RequestContext> getRequestContext(ServerRequestObservationContext context) {
         HttpServletRequest request = context.getCarrier();
-        if (request != null) {
-            Object contextAttr = request.getAttribute(RequestContext.REQUEST_CONTEXT_ATTRIBUTE);
-            if (contextAttr instanceof RequestContext) {
-                return Optional.of((RequestContext) contextAttr);
-            }
+        Object contextAttr = request.getAttribute(RequestContext.REQUEST_CONTEXT_ATTRIBUTE);
+        if (contextAttr instanceof RequestContext requestContext) {
+            return Optional.of(requestContext);
         }
         return RequestContext.getCurrentContext();
     }
 
-    /**
-     * Check if field should be included in metrics
-     */
-    private boolean shouldIncludeInMetrics(FieldConfiguration fieldConfig, CardinalityLevel level) {
-        if (fieldConfig.getObservability() == null ||
-                fieldConfig.getObservability().getMetrics() == null) {
-            return false;
-        }
-
-        MetricsConfig metricsConfig = fieldConfig.getObservability().getMetrics();
-        return metricsConfig.isEnabled() && metricsConfig.getCardinality() == level;
-    }
-
-    /**
-     * Get cardinality level for field
-     */
-    private CardinalityLevel getCardinality(FieldConfiguration fieldConfig) {
-        if (fieldConfig.getObservability() != null &&
-                fieldConfig.getObservability().getMetrics() != null) {
-            return fieldConfig.getObservability().getMetrics().getCardinality();
-        }
-        return CardinalityLevel.NONE;
-    }
-
-    /**
-     * Check if field is sensitive
-     */
-    private boolean isSensitive(FieldConfiguration fieldConfig) {
-        return fieldConfig.getSecurity() != null && fieldConfig.getSecurity().isSensitive();
-    }
 }

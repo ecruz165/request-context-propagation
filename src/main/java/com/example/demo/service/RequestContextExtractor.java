@@ -1,29 +1,18 @@
 package com.example.demo.service;
 
 import com.example.demo.config.props.RequestContextProperties;
-import com.example.demo.config.props.RequestContextProperties.ClaimConfig;
-import com.example.demo.config.props.RequestContextProperties.CookieConfig;
 import com.example.demo.config.props.RequestContextProperties.FieldConfiguration;
 import com.example.demo.config.props.RequestContextProperties.GeneratorType;
 import com.example.demo.config.props.RequestContextProperties.InboundConfig;
-import com.example.demo.config.props.RequestContextProperties.SessionConfig;
-import com.example.demo.config.props.RequestContextProperties.TokenConfig;
 import com.example.demo.config.props.RequestContextProperties.TransformationType;
-import com.example.demo.util.CachedBodyHttpServletRequest;
-import com.jayway.jsonpath.JsonPath;
-import com.jayway.jsonpath.PathNotFoundException;
-import jakarta.servlet.http.Cookie;
+import com.example.demo.service.source.SourceHandlers;
+import com.example.demo.util.MaskingHelper;
+
+import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.servlet.http.HttpServletRequest;
-import jakarta.servlet.http.HttpSession;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.security.core.Authentication;
-import org.springframework.security.core.context.SecurityContextHolder;
-import org.springframework.security.oauth2.jwt.Jwt;
-import org.springframework.security.oauth2.server.resource.authentication.JwtAuthenticationToken;
 import org.springframework.stereotype.Service;
-import org.springframework.util.StringUtils;
-import org.springframework.web.servlet.HandlerMapping;
 
 import java.io.BufferedReader;
 import java.io.IOException;
@@ -46,6 +35,9 @@ import java.util.concurrent.atomic.AtomicLong;
 public class RequestContextExtractor {
 
     private final RequestContextProperties properties;
+    private final MaskingHelper maskingHelper;
+    private final ObjectMapper objectMapper;
+    private final SourceHandlers sourceHandlers;
     private final AtomicLong sequenceGenerator = new AtomicLong(0);
 
     /**
@@ -71,56 +63,48 @@ public class RequestContextExtractor {
     }
 
     /**
+     * Extracts and stores a value in the context with appropriate masking
+     * @param fieldName The field name to extract
+     * @param fieldConfig The field configuration
+     * @param request The HTTP request
+     * @param context The context to store values in
+     */
+    public void extractAndStoreValue(String fieldName, FieldConfiguration fieldConfig,
+                                   HttpServletRequest request, com.example.demo.config.RequestContext context) {
+        if (fieldConfig.getUpstream() == null || fieldConfig.getUpstream().getInbound() == null) {
+            log.debug("No upstream inbound configuration for field: {}", fieldName);
+            return;
+        }
+
+        InboundConfig inboundConfig = fieldConfig.getUpstream().getInbound();
+        String rawValue = extractFromSource(inboundConfig, request, fieldName);
+
+        if (rawValue != null) {
+            // Store original value
+            context.put(fieldName, rawValue);
+
+            // Store masked value if field is sensitive
+            if (fieldConfig.getSecurity() != null && fieldConfig.getSecurity().isSensitive()) {
+                String maskedValue = maskingHelper.maskValue(rawValue, fieldConfig);
+                context.putMasked(fieldName, maskedValue);
+                log.debug("Stored masked value for sensitive field: {}", fieldName);
+            }
+        }
+    }
+
+    /**
      * Extracts value from the configured source with fallback support
      */
     private String extractFromSource(InboundConfig config, HttpServletRequest request, String fieldName) {
         String value = null;
 
         try {
-            // Extract based on source type
-            switch (config.getSource()) {
-                case HEADER:
-                    value = extractFromHeader(request, config);
-                    break;
+            // Delegate raw extraction to the source handlers
+            value = sourceHandlers.extractFromUpstreamRequest(config.getSource(), request, config);
 
-                case QUERY:
-                    value = extractFromQuery(request, config);
-                    break;
-
-                case COOKIE:
-                    value = extractFromCookie(request, config);
-                    break;
-
-                case PATH:
-                    value = extractFromPath(request, config);
-                    break;
-
-                case SESSION:
-                    value = extractFromSession(request, config);
-                    break;
-
-                case ATTRIBUTE:
-                    value = extractFromAttribute(request, config);
-                    break;
-
-                case TOKEN:
-                    value = extractFromToken(request, config);
-                    break;
-
-                case CLAIM:
-                    value = extractFromClaim(config);
-                    break;
-
-                case BODY:
-                    value = extractFromBody(request, config);
-                    break;
-
-                case FORM:
-                    value = extractFromForm(request, config);
-                    break;
-
-                default:
-                    log.warn("Unsupported source type: {} for field: {}", config.getSource(), fieldName);
+            // If registry didn't handle it, log a debug message (this is normal when the source doesn't contain the field)
+            if (value == null) {
+                log.debug("No value extracted from source type: {} for field: {}", config.getSource(), fieldName);
             }
 
             // Try fallback if primary source returned null
@@ -176,292 +160,71 @@ public class RequestContextExtractor {
     }
 
     /**
-     * Extract from HTTP header
+     * Extract value from JsonNode using field configuration
+     * Used when body is already available as JsonNode from RequestBodyAdvice
      */
-    private String extractFromHeader(HttpServletRequest request, InboundConfig config) {
-        String value = request.getHeader(config.getKey());
-        if (value != null && properties.getSourceConfiguration().getHeader().isNormalizeNames()) {
-            value = value.trim();
-        }
-        return value;
-    }
-
-    /**
-     * Extract from query parameter
-     */
-    private String extractFromQuery(HttpServletRequest request, InboundConfig config) {
-        String value = request.getParameter(config.getKey());
-        if (value != null) {
-            try {
-                // Decode URL-encoded value
-                value = URLDecoder.decode(value, StandardCharsets.UTF_8);
-            } catch (Exception e) {
-                log.debug("Failed to URL decode query parameter: {}", e.getMessage());
-            }
-        }
-        return value;
-    }
-
-    /**
-     * Extract from cookie
-     */
-    private String extractFromCookie(HttpServletRequest request, InboundConfig config) {
-        if (request.getCookies() != null) {
-            CookieConfig cookieConfig = properties.getSourceConfiguration().getCookie();
-
-            for (Cookie cookie : request.getCookies()) {
-                if (cookie.getName().equals(config.getKey())) {
-                    // Check security constraints
-                    if (cookieConfig.isHttpOnly() && !cookie.isHttpOnly()) {
-                        log.debug("Cookie {} is not httpOnly, skipping", config.getKey());
-                        continue;
-                    }
-                    if (cookieConfig.isSecure() && !cookie.getSecure()) {
-                        log.debug("Cookie {} is not secure, skipping", config.getKey());
-                        continue;
-                    }
-                    return cookie.getValue();
-                }
-            }
-        }
-        return null;
-    }
-
-    /**
-     * Extract from path variable
-     */
-    @SuppressWarnings("unchecked")
-    private String extractFromPath(HttpServletRequest request, InboundConfig config) {
-        Map<String, String> pathVariables = (Map<String, String>) request.getAttribute(
-                HandlerMapping.URI_TEMPLATE_VARIABLES_ATTRIBUTE);
-
-        if (pathVariables != null) {
-            return pathVariables.get(config.getKey());
-        }
-
-        // Fallback to pattern matching if configured
-        if (config.getPattern() != null) {
-            String path = request.getRequestURI();
-            // Simple pattern extraction (could use more sophisticated matching)
-            return extractFromPattern(path, config.getPattern(), config.getKey());
-        }
-
-        return null;
-    }
-
-    /**
-     * Extract from HTTP session
-     */
-    private String extractFromSession(HttpServletRequest request, InboundConfig config) {
-        SessionConfig sessionConfig = properties.getSourceConfiguration().getSession();
-        HttpSession session = request.getSession(sessionConfig.isCreateIfAbsent());
-
-        if (session != null) {
-            String key = sessionConfig.getAttributePrefix() + config.getKey();
-            Object value = session.getAttribute(key);
-            return value != null ? value.toString() : null;
-        }
-        return null;
-    }
-
-    /**
-     * Extract from request attribute
-     */
-    private String extractFromAttribute(HttpServletRequest request, InboundConfig config) {
-        Object value = request.getAttribute(config.getKey());
-        return value != null ? value.toString() : null;
-    }
-
-    /**
-     * Extract from token (JWT)
-     */
-    private String extractFromToken(HttpServletRequest request, InboundConfig config) {
-        TokenConfig tokenConfig = properties.getSourceConfiguration().getToken();
-        String authHeader = request.getHeader(tokenConfig.getHeaderName());
-
-        if (authHeader != null && authHeader.startsWith(tokenConfig.getPrefix())) {
-            String token = authHeader.substring(tokenConfig.getPrefix().length()).trim();
-
-            // If already authenticated by Spring Security, use that
-            Authentication auth = SecurityContextHolder.getContext().getAuthentication();
-            if (auth instanceof JwtAuthenticationToken) {
-                Jwt jwt = ((JwtAuthenticationToken) auth).getToken();
-                return extractClaimFromJwt(jwt, config.getKey(), config.getClaimPath());
-            }
-
-            // Otherwise, parse token manually (if validation is disabled)
-            if (!tokenConfig.isValidate()) {
-                return extractUnverifiedClaim(token, config.getKey());
-            }
-        }
-        return null;
-    }
-
-    /**
-     * Extract from authenticated JWT claim
-     */
-    private String extractFromClaim(InboundConfig config) {
-        Authentication auth = SecurityContextHolder.getContext().getAuthentication();
-
-        if (auth != null && auth.isAuthenticated()) {
-            if (auth instanceof JwtAuthenticationToken) {
-                Jwt jwt = ((JwtAuthenticationToken) auth).getToken();
-                return extractClaimFromJwt(jwt, config.getKey(), config.getClaimPath());
-            }
-            // Add support for other authentication types as needed
-        }
-        return null;
-    }
-
-    /**
-     * Extract claim from JWT
-     */
-    private String extractClaimFromJwt(Jwt jwt, String claimKey, String claimPath) {
-        Map<String, Object> claims = jwt.getClaims();
-
-        // Use claim path if specified
-        if (StringUtils.hasText(claimPath)) {
-            return extractNestedValue(claims, claimPath);
-        }
-
-        // Otherwise use claim key directly
-        Object claim = claims.get(claimKey);
-        return claim != null ? claim.toString() : null;
-    }
-
-    /**
-     * Extract nested value from map using dot notation
-     */
-    private String extractNestedValue(Map<String, Object> map, String path) {
-        if (path == null || map == null) {
+    public String extractValueFromBody(String fieldName, com.fasterxml.jackson.databind.JsonNode bodyNode) {
+        FieldConfiguration fieldConfig = properties.getFields().get(fieldName);
+        if (fieldConfig == null || fieldConfig.getUpstream() == null ||
+            fieldConfig.getUpstream().getInbound() == null) {
             return null;
         }
 
-        ClaimConfig claimConfig = properties.getSourceConfiguration().getClaim();
-        String separator = claimConfig.getNestedSeparator();
-        String[] parts = path.split("\\" + separator);
-
-        Object current = map;
-        for (String part : parts) {
-            if (current instanceof Map) {
-                current = ((Map<?, ?>) current).get(part);
-            } else if (current instanceof List && part.contains(claimConfig.getArrayIndex())) {
-                // Handle array access
-                String indexStr = part.replace(claimConfig.getArrayIndex(), "");
-                try {
-                    int index = Integer.parseInt(indexStr);
-                    current = ((List<?>) current).get(index);
-                } catch (Exception e) {
-                    return null;
-                }
-            } else {
-                return null;
-            }
-        }
-
-        return current != null ? current.toString() : null;
-    }
-
-    /**
-     * Extract unverified claim from JWT (for non-sensitive data only)
-     */
-    private String extractUnverifiedClaim(String token, String claimKey) {
-        try {
-            // Parse JWT without verification
-            String[] parts = token.split("\\.");
-            if (parts.length >= 2) {
-                String payload = new String(Base64.getUrlDecoder().decode(parts[1]));
-                // Simple JSON parsing (could use Jackson for complex cases)
-                return extractSimpleJsonValue(payload, claimKey);
-            }
-        } catch (Exception e) {
-            log.debug("Failed to extract unverified claim: {}", e.getMessage());
-        }
-        return null;
-    }
-
-    /**
-     * Extract from request body using JSONPath expressions
-     */
-    private String extractFromBody(HttpServletRequest request, InboundConfig config) {
-        try {
-            String contentType = request.getContentType();
-            if (contentType == null || !contentType.contains("application/json")) {
-                log.debug("Body extraction skipped - content type is not JSON: {}", contentType);
-                return null;
-            }
-
-            // Get the request body from cached wrapper
-            String requestBody = getRequestBody(request);
-            if (requestBody == null || requestBody.trim().isEmpty()) {
-                log.debug("Body extraction skipped - request body is empty");
-                return null;
-            }
-
-            // Extract value using JSONPath
-            String jsonPath = config.getKey();
-            if (jsonPath == null || jsonPath.trim().isEmpty()) {
-                log.debug("Body extraction skipped - JSONPath key is empty");
-                return null;
-            }
-
-            try {
-                Object value = JsonPath.read(requestBody, jsonPath);
-                if (value != null) {
-                    String extractedValue = value.toString();
-                    log.debug("Extracted value from body using JSONPath '{}': {}", jsonPath, extractedValue);
-                    return extractedValue;
-                }
-            } catch (PathNotFoundException e) {
-                log.debug("JSONPath '{}' not found in request body", jsonPath);
-            } catch (Exception e) {
-                log.warn("Error extracting value from body using JSONPath '{}': {}", jsonPath, e.getMessage());
-            }
-
-        } catch (Exception e) {
-            log.warn("Error reading request body for extraction: {}", e.getMessage());
-        }
-
-        return null;
-    }
-
-    /**
-     * Get the request body as a string, using cached body if available
-     */
-    private String getRequestBody(HttpServletRequest request) {
-        // If this is a cached body request, use the cached body
-        if (request instanceof CachedBodyHttpServletRequest) {
-            return ((CachedBodyHttpServletRequest) request).getCachedBody();
-        }
-
-        // Fallback to reading directly (may cause issues with Spring's body processing)
-        try {
-            StringBuilder stringBuilder = new StringBuilder();
-            BufferedReader bufferedReader = request.getReader();
-
-            String line;
-            while ((line = bufferedReader.readLine()) != null) {
-                stringBuilder.append(line);
-            }
-
-            return stringBuilder.toString();
-        } catch (IOException e) {
-            log.warn("Error reading request body: {}", e.getMessage());
+        InboundConfig config = fieldConfig.getUpstream().getInbound();
+        if (config.getSource() != RequestContextProperties.SourceType.BODY) {
             return null;
         }
+
+        try {
+            // Delegate to the source handlers for BODY extraction
+            String extractedValue = sourceHandlers.extractFromUpstreamRequestBody(config.getSource(), bodyNode, config);
+
+            // If extraction returns null (JSONPath not found), use default value
+            if (extractedValue == null && config.getDefaultValue() != null) {
+                log.debug("Using default value for field {}: {}", fieldName, config.getDefaultValue());
+                return config.getDefaultValue();
+            }
+
+            return extractedValue;
+        } catch (Exception e) {
+            log.warn("Error extracting value from JsonNode for field {}: {}", fieldName, e.getMessage());
+            // Return default value if extraction fails
+            return config.getDefaultValue();
+        }
     }
 
     /**
-     * Extract from form data
+     * Extract and store value from JsonNode with appropriate masking
+     * Used when body is already available as JsonNode from RequestBodyAdvice
      */
-    private String extractFromForm(HttpServletRequest request, InboundConfig config) {
-        if ("POST".equalsIgnoreCase(request.getMethod()) &&
-                request.getContentType() != null &&
-                request.getContentType().contains("application/x-www-form-urlencoded")) {
-            return request.getParameter(config.getKey());
+    public void extractAndStoreValueFromBody(String fieldName, FieldConfiguration fieldConfig,
+                                           com.fasterxml.jackson.databind.JsonNode bodyNode,
+                                           com.example.demo.config.RequestContext context) {
+        if (fieldConfig.getUpstream() == null || fieldConfig.getUpstream().getInbound() == null) {
+            return;
         }
-        return null;
+
+        InboundConfig config = fieldConfig.getUpstream().getInbound();
+        if (config.getSource() != RequestContextProperties.SourceType.BODY) {
+            return;
+        }
+
+        String rawValue = extractValueFromBody(fieldName, bodyNode);
+
+        if (rawValue != null) {
+            // Store original value
+            context.put(fieldName, rawValue);
+
+            // Store masked value if field is sensitive
+            if (fieldConfig.getSecurity() != null && fieldConfig.getSecurity().isSensitive()) {
+                String maskedValue = maskingHelper.maskValue(rawValue, fieldConfig);
+                context.putMasked(fieldName, maskedValue);
+                log.debug("Stored masked value for sensitive field: {}", fieldName);
+            }
+        }
     }
+
+
 
     /**
      * Generate value based on generator type - package-private for reuse
@@ -598,55 +361,7 @@ public class RequestContextExtractor {
         return value;
     }
 
-    /**
-     * Extract value from pattern
-     */
-    private String extractFromPattern(String path, String pattern, String key) {
-        // Simple pattern matching - could use more sophisticated regex
-        // Example: /api/v1/users/{userId}/orders -> extract userId
-        String placeholder = "{" + key + "}";
-        int index = pattern.indexOf(placeholder);
-        if (index >= 0) {
-            String prefix = pattern.substring(0, index);
-            String suffix = pattern.substring(index + placeholder.length());
 
-            if (path.startsWith(prefix)) {
-                String remaining = path.substring(prefix.length());
-                if (suffix.isEmpty()) {
-                    return remaining;
-                }
-                int suffixIndex = remaining.indexOf(suffix);
-                if (suffixIndex > 0) {
-                    return remaining.substring(0, suffixIndex);
-                }
-            }
-        }
-        return null;
-    }
 
-    /**
-     * Simple JSON value extraction
-     */
-    private String extractSimpleJsonValue(String json, String key) {
-        // Very simple JSON parsing for demonstration
-        // Use Jackson for production
-        String searchKey = "\"" + key + "\":";
-        int index = json.indexOf(searchKey);
-        if (index >= 0) {
-            int start = index + searchKey.length();
-            int end = json.indexOf(",", start);
-            if (end < 0) {
-                end = json.indexOf("}", start);
-            }
-            if (end > start) {
-                String value = json.substring(start, end).trim();
-                // Remove quotes if present
-                if (value.startsWith("\"") && value.endsWith("\"")) {
-                    return value.substring(1, value.length() - 1);
-                }
-                return value;
-            }
-        }
-        return null;
-    }
+
 }
