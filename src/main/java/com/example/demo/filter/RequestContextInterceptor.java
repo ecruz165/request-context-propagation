@@ -14,13 +14,17 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.core.MethodParameter;
 import org.springframework.http.HttpInputMessage;
+import org.springframework.http.MediaType;
 import org.springframework.http.converter.HttpMessageConverter;
+import org.springframework.http.server.ServerHttpRequest;
+import org.springframework.http.server.ServerHttpResponse;
 import org.springframework.stereotype.Component;
 import org.springframework.web.bind.annotation.ControllerAdvice;
 import org.springframework.web.method.HandlerMethod;
 import org.springframework.web.servlet.HandlerInterceptor;
 import org.springframework.web.servlet.ModelAndView;
 import org.springframework.web.servlet.mvc.method.annotation.RequestBodyAdvice;
+import org.springframework.web.servlet.mvc.method.annotation.ResponseBodyAdvice;
 
 import java.io.IOException;
 import java.lang.reflect.Type;
@@ -35,7 +39,7 @@ import java.lang.reflect.Type;
 @Component
 @ControllerAdvice
 @RequiredArgsConstructor
-public class RequestContextInterceptor implements HandlerInterceptor, RequestBodyAdvice {
+public class RequestContextInterceptor implements HandlerInterceptor, RequestBodyAdvice, ResponseBodyAdvice<Object> {
 
     private final RequestContextService contextService;
     private final ObjectMapper objectMapper;
@@ -66,9 +70,6 @@ public class RequestContextInterceptor implements HandlerInterceptor, RequestBod
             return false;
         }
 
-        // Enrich response headers if configured
-        contextService.enrichResponse(response, context);
-
         log.debug("RequestContext ready for controller with {} fields", context.size());
 
         return true; // Continue to controller
@@ -79,7 +80,7 @@ public class RequestContextInterceptor implements HandlerInterceptor, RequestBod
                            HttpServletResponse response,
                            Object handler,
                            ModelAndView modelAndView) throws Exception {
-        // BODY sources are now extracted in the controller method after RequestBodyAdvice
+        // Response enrichment is now handled by ResponseBodyAdvice
         // No additional operations needed after controller execution
     }
 
@@ -146,6 +147,44 @@ public class RequestContextInterceptor implements HandlerInterceptor, RequestBod
     public Object handleEmptyBody(Object body, HttpInputMessage inputMessage, MethodParameter parameter,
                                  Type targetType, Class<? extends HttpMessageConverter<?>> converterType) {
         // No special handling needed for empty body
+        return body;
+    }
+
+    // ResponseBodyAdvice implementation for upstream response enrichment
+
+    @Override
+    public boolean supports(MethodParameter returnType, Class<? extends HttpMessageConverter<?>> converterType) {
+        // Always support response enrichment
+        return true;
+    }
+
+    @Override
+    public Object beforeBodyWrite(Object body, MethodParameter returnType, MediaType selectedContentType,
+                                 Class<? extends HttpMessageConverter<?>> selectedConverterType,
+                                 ServerHttpRequest request, ServerHttpResponse response) {
+
+        try {
+            // Get the current context (may have been enriched with downstream response data)
+            contextService.getCurrentContext().ifPresent(context -> {
+                try {
+                    // Convert ServerHttpResponse to HttpServletResponse for enrichment
+                    if (response instanceof org.springframework.http.server.ServletServerHttpResponse) {
+                        HttpServletResponse servletResponse =
+                            ((org.springframework.http.server.ServletServerHttpResponse) response).getServletResponse();
+
+                        // Enrich response headers with captured values (including downstream response data)
+                        contextService.enrichResponse(servletResponse, context);
+
+                        log.debug("Response enriched with upstream outbound fields via ResponseBodyAdvice");
+                    }
+                } catch (Exception e) {
+                    log.error("Error enriching response in ResponseBodyAdvice: {}", e.getMessage(), e);
+                }
+            });
+        } catch (Exception e) {
+            log.error("Error getting context in ResponseBodyAdvice: {}", e.getMessage(), e);
+        }
+
         return body;
     }
 }

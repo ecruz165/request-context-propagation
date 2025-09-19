@@ -1,21 +1,59 @@
 package com.example.demo.config;
 
 import com.example.demo.filter.RequestContextWebClientPropagationFilter;
+import com.example.demo.service.RequestContextService;
+// ContextAwareScheduler removed for WebClient-focused architecture
 import org.springframework.boot.test.context.TestConfiguration;
 import org.springframework.context.annotation.Bean;
 import org.springframework.web.reactive.function.client.WebClient;
+import reactor.netty.http.client.HttpClient;
+import reactor.netty.resources.ConnectionProvider;
+import org.springframework.http.client.reactive.ReactorClientHttpConnector;
 
 /**
- * Test configuration for WebClient with propagation filter
+ * Test configuration for WebClient with propagation filter and context-aware scheduler
  */
 @TestConfiguration
 public class TestWebClientConfig {
 
     @Bean
-    public WebClient webClient(RequestContextWebClientPropagationFilter propagationFilter) {
-        return WebClient.builder()
+    public WebClient webClient(RequestContextWebClientBuilder webClientBuilder) {
+        return webClientBuilder.create()
                 .baseUrl("http://localhost:8089")
-                .filter(propagationFilter.createFilter())
                 .build();
+    }
+
+    /**
+     * Alternative: WebClient factory method that creates instances with context-aware scheduler
+     */
+    @Bean
+    public WebClientFactory webClientFactory(RequestContextWebClientPropagationFilter propagationFilter,
+                                            RequestContextService contextService) {
+        return new WebClientFactory(propagationFilter, contextService);
+    }
+
+    /**
+     * Factory for creating WebClient instances with context propagation
+     */
+    public static class WebClientFactory {
+        private final RequestContextWebClientPropagationFilter propagationFilter;
+        private final RequestContextService contextService;
+
+        public WebClientFactory(RequestContextWebClientPropagationFilter propagationFilter,
+                               RequestContextService contextService) {
+            this.propagationFilter = propagationFilter;
+            this.contextService = contextService;
+        }
+
+        /**
+         * Create a WebClient for a specific base URL
+         * Context propagation handled automatically by ContextAwareWebClientBuilder
+         */
+        public WebClient createWithContextPropagation(String baseUrl) {
+            return WebClient.builder()
+                    .baseUrl(baseUrl)
+                    .filter(propagationFilter.createFilter())
+                    .build();
+        }
     }
 }

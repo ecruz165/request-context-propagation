@@ -176,7 +176,89 @@ public class TestController {
         return fields;
     }
 
+    /**
+     * Test endpoint demonstrating concurrent zip and block with upstream propagation
+     * This endpoint makes requests to two distinct systems, uses Mono.zip, blocks, and propagates captured values upstream
+     */
+    @GetMapping("/concurrent-zip-block-test")
+    public ResponseEntity<Map<String, Object>> testConcurrentZipBlockUpstream() {
+        log.info("Starting concurrent zip and block test");
 
+        try {
+            // Create WebClients for two distinct systems
+            WebClient userServiceClient = webClientBuilder.createForSystem("user-service")
+                    .baseUrl("http://localhost:8089")
+                    .build();
 
+            WebClient profileServiceClient = webClientBuilder.createForSystem("profile-service")
+                    .baseUrl("http://localhost:8089")
+                    .build();
+
+            // Get current context for propagation
+            Optional<RequestContext> currentContext = requestContextService.getCurrentContext();
+
+            // Make concurrent calls using Mono.zip with context propagation
+            Mono<Map> userCall = userServiceClient.get()
+                    .uri("/user-service/users/test-user")
+                    .retrieve()
+                    .bodyToMono(Map.class);
+
+            Mono<Map> profileCall = profileServiceClient.get()
+                    .uri("/profile-service/profiles/test-user")
+                    .retrieve()
+                    .bodyToMono(Map.class);
+
+            // Add context to both calls if available
+            if (currentContext.isPresent()) {
+                RequestContext context = currentContext.get();
+                userCall = userCall.contextWrite(reactor.util.context.Context.of("REQUEST_CONTEXT", context));
+                profileCall = profileCall.contextWrite(reactor.util.context.Context.of("REQUEST_CONTEXT", context));
+            }
+
+            // Zip the results and add processing metadata
+            Mono<Map<String, Object>> combinedMono = Mono.zip(userCall, profileCall)
+                    .map(tuple -> {
+                        Map<String, Object> combined = new HashMap<>();
+                        combined.put("user", tuple.getT1());
+                        combined.put("profile", tuple.getT2());
+                        combined.put("timestamp", System.currentTimeMillis());
+
+                        // Add combined processing time to context for upstream propagation
+                        String combinedTime = System.currentTimeMillis() + "ms";
+                        requestContextService.setField("combinedProcessingTime", combinedTime);
+
+                        return combined;
+                    })
+                    // Ensure upstream values are propagated
+                    .transform(mono -> RequestContextWebClientBuilder.propagateUpstreamValues(mono, requestContextService));
+
+            // Block to get the result (this should trigger upstream propagation)
+            Map<String, Object> result = RequestContextWebClientBuilder.blockWithUpstreamPropagation(
+                    combinedMono, requestContextService);
+
+            // Build response with captured values
+            Map<String, Object> responseData = new HashMap<>();
+            responseData.put("message", "Concurrent zip and block test completed");
+            responseData.put("userServiceData", result.get("user"));
+            responseData.put("profileServiceData", result.get("profile"));
+            responseData.put("timestamp", result.get("timestamp"));
+
+            // Add captured values from context
+            Map<String, Object> capturedValues = new HashMap<>();
+            capturedValues.put("downstreamUserVersion", requestContextService.getField("downstreamUserServiceVersion"));
+            capturedValues.put("downstreamProfileVersion", requestContextService.getField("downstreamProfileServiceVersion"));
+            capturedValues.put("combinedProcessingTime", requestContextService.getField("combinedProcessingTime"));
+            responseData.put("capturedValues", capturedValues);
+
+            log.info("Concurrent zip and block test completed with captured values: {}", capturedValues);
+
+            return ResponseEntity.ok(responseData);
+
+        } catch (Exception e) {
+            log.error("Error in concurrent zip and block test", e);
+            return ResponseEntity.status(500)
+                    .body(Map.of("error", "Concurrent zip and block test failed: " + e.getMessage()));
+        }
+    }
 
 }

@@ -38,22 +38,36 @@ public class RequestContextWebClientCaptureFilter {
      * @return Mono with the same response
      */
     private Mono<ClientResponse> captureResponseHeaders(ClientResponse clientResponse) {
-        // Get current context from ThreadLocal
-        Optional<RequestContext> contextOpt = RequestContext.getCurrentContext();
+        return Mono.deferContextual(contextView -> {
+            // Try to get context from Reactor Context first
+            if (contextView.hasKey("REQUEST_CONTEXT")) {
+                RequestContext context = contextView.get("REQUEST_CONTEXT");
 
-        if (contextOpt.isEmpty()) {
-            log.debug("No RequestContext available for capturing response headers");
+                // Use service to enrich context with downstream response data
+                contextService.enrichWithDownstreamResponse(clientResponse, context);
+
+                log.debug("Processed downstream response for RequestId: {} (from Reactor Context)", context.get("requestId"));
+
+                return Mono.just(clientResponse);
+            }
+
+            // Fallback to ThreadLocal if Reactor Context is not available
+            Optional<RequestContext> contextOpt = RequestContext.getCurrentContext();
+
+            if (contextOpt.isEmpty()) {
+                log.debug("No RequestContext available for capturing response headers");
+                return Mono.just(clientResponse);
+            }
+
+            RequestContext context = contextOpt.get();
+
+            // Use service to enrich context with downstream response data
+            contextService.enrichWithDownstreamResponse(clientResponse, context);
+
+            log.debug("Processed downstream response for RequestId: {} (from ThreadLocal)", context.get("requestId"));
+
             return Mono.just(clientResponse);
-        }
-
-        RequestContext context = contextOpt.get();
-
-        // Use service to enrich context with downstream response data
-        contextService.enrichWithDownstreamResponse(clientResponse, context);
-
-        log.debug("Processed downstream response for RequestId: {}", context.get("requestId"));
-
-        return Mono.just(clientResponse);
+        });
     }
 
 

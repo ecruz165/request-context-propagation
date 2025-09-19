@@ -620,3 +620,49 @@ request-context:
           tagName: "api.handler"
       # This field is provided by framework
       # Can be sent in upstream responses and downstream requests
+
+    # ========================================
+    # CONCURRENT TEST FIELDS
+    # ========================================
+    # Fields for testing concurrent zip and block operations
+
+    # User Service Version (for concurrent test)
+    downstreamUserServiceVersion:
+      downstream:
+        inbound:
+          source: "HEADER"
+          key: "X-User-Service-Version"
+      upstream:
+        outbound:
+          enrichAs: "HEADER"
+          key: "X-Downstream-User-Version"
+      observability:
+        logging:
+          mdcKey: "downstream.user.version"
+          includeInLogs: true
+
+    # Profile Service Version (for concurrent test)
+    downstreamProfileServiceVersion:
+      downstream:
+        inbound:
+          source: "HEADER"
+          key: "X-Profile-Service-Version"
+      upstream:
+        outbound:
+          enrichAs: "HEADER"
+          key: "X-Downstream-Profile-Version"
+      observability:
+        logging:
+          mdcKey: "downstream.profile.version"
+          includeInLogs: true
+
+    # Combined Processing Time (for concurrent test)
+    combinedProcessingTime:
+      upstream:
+        outbound:
+          enrichAs: "HEADER"
+          key: "X-Combined-Processing-Time"
+      observability:
+        logging:
+          mdcKey: "combined.processing.time"
+          includeInLogs: true
