@@ -1,8 +1,8 @@
 package com.example.demo.logging;
 
 import ch.qos.logback.classic.spi.ILoggingEvent;
-import com.example.demo.service.RequestContext;
 import com.example.demo.observability.SpanTagBuilderHelper;
+import com.example.demo.service.RequestContext;
 import com.example.demo.service.RequestContextService;
 import com.fasterxml.jackson.core.JsonGenerator;
 import net.logstash.logback.composite.AbstractFieldJsonProvider;

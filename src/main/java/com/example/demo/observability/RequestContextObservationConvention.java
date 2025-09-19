@@ -1,7 +1,7 @@
 package com.example.demo.observability;
 
-import com.example.demo.service.RequestContext;
 import com.example.demo.config.props.RequestContextProperties.CardinalityLevel;
+import com.example.demo.service.RequestContext;
 import com.example.demo.service.RequestContextService;
 import io.micrometer.common.KeyValue;
 import io.micrometer.common.KeyValues;

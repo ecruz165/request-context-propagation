@@ -1,6 +1,5 @@
 package com.example.demo.service;
 
-import com.example.demo.service.RequestContext;
 import com.example.demo.config.props.RequestContextProperties;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;

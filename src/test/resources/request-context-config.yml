@@ -666,3 +666,72 @@ request-context:
         logging:
           mdcKey: "combined.processing.time"
           includeInLogs: true
+
+    # ========================================
+    # SYSTEM-SPECIFIC PROPAGATION TEST FIELDS
+    # ========================================
+    # Fields demonstrating the new extSysIds feature
+
+    # Field that propagates to ALL systems (default behavior)
+    globalApiKey:
+      upstream:
+        inbound:
+          source: "HEADER"
+          key: "X-API-Key"
+      downstream:
+        outbound:
+          enrichAs: "HEADER"
+          key: "X-API-Key"
+          # No extSysIds specified = propagate to ALL systems
+      observability:
+        logging:
+          mdcKey: "global.api.key"
+          includeInLogs: true
+
+    # Field that only propagates to user-service
+    userServiceToken:
+      upstream:
+        inbound:
+          source: "HEADER"
+          key: "X-User-Token"
+      downstream:
+        outbound:
+          enrichAs: "HEADER"
+          key: "X-User-Token"
+          extSysIds: ["user-service"]  # Only propagate to user-service
+      observability:
+        logging:
+          mdcKey: "user.service.token"
+          includeInLogs: true
+
+    # Field that only propagates to profile-service and payment-service
+    profilePaymentAuth:
+      upstream:
+        inbound:
+          source: "HEADER"
+          key: "X-Profile-Payment-Auth"
+      downstream:
+        outbound:
+          enrichAs: "HEADER"
+          key: "X-Profile-Payment-Auth"
+          extSysIds: ["profile-service", "payment-service"]  # Only these two systems
+      observability:
+        logging:
+          mdcKey: "profile.payment.auth"
+          includeInLogs: true
+
+    # Field that propagates to multiple specific systems
+    multiSystemCorrelation:
+      upstream:
+        inbound:
+          source: "HEADER"
+          key: "X-Multi-System-Correlation"
+      downstream:
+        outbound:
+          enrichAs: "HEADER"
+          key: "X-Multi-System-Correlation"
+          extSysIds: ["user-service", "profile-service", "notification-service"]
+      observability:
+        logging:
+          mdcKey: "multi.system.correlation"
+          includeInLogs: true

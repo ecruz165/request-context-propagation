@@ -1,24 +1,25 @@
 package com.example.demo.config;
 
-import com.example.demo.filter.RequestContextWebClientPropagationFilter;
 import com.example.demo.filter.RequestContextWebClientCaptureFilter;
 import com.example.demo.filter.RequestContextWebClientLoggingFilter;
+import com.example.demo.filter.RequestContextWebClientPropagationFilter;
+import com.example.demo.service.RequestContext;
 import com.example.demo.service.RequestContextService;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
-import org.springframework.web.reactive.function.client.WebClient;
 import org.springframework.web.reactive.function.client.ExchangeFilterFunction;
+import org.springframework.web.reactive.function.client.WebClient;
+import reactor.core.publisher.Mono;
+import reactor.util.context.Context;
 
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import java.util.function.Consumer;
 import java.util.function.Function;
-import java.time.Duration;
-import reactor.core.publisher.Mono;
-import reactor.util.context.Context;
-import com.example.demo.service.RequestContext;
 
 /**
  * Context-aware WebClient.Builder that can be cloned and customized
@@ -68,13 +69,17 @@ public class RequestContextWebClientBuilder {
 
     /**
      * Create a WebClient.Builder for a specific system with default configuration
-     * 
-     * @param systemName The name of the downstream system (for logging/metrics)
+     *
+     * @param extSysId The external system ID (used for system-specific field propagation)
      * @return A WebClient.Builder configured for the system
      */
-    public WebClient.Builder createForSystem(String systemName) {
-        return create()
-                .defaultHeader("X-Client-System", systemName)
+    public WebClient.Builder createForSystem(String extSysId) {
+        return WebClient.builder()
+                // Apply context filters with system-specific propagation
+                .filter(propagationFilter.createFilterForSystem(extSysId))  // 1. System-specific propagation
+                .filter(captureFilter.createFilter())                       // 2. Capture response data
+                .filter(loggingFilter.createFilter())                       // 3. Log with context
+                .defaultHeader("X-Client-System", extSysId)
                 .defaultHeader("User-Agent", "ContextAwareWebClient/1.0");
     }
 
@@ -92,14 +97,14 @@ public class RequestContextWebClientBuilder {
 
     /**
      * Create a WebClient.Builder for a specific system with custom configuration
-     * 
-     * @param systemName The name of the downstream system
+     *
+     * @param extSysId The external system ID
      * @param customizer Function to customize the builder
      * @return A customized WebClient.Builder for the system
      */
-    public WebClient.Builder createForSystemWithCustomization(String systemName, 
+    public WebClient.Builder createForSystemWithCustomization(String extSysId,
                                                              Consumer<WebClient.Builder> customizer) {
-        WebClient.Builder builder = createForSystem(systemName);
+        WebClient.Builder builder = createForSystem(extSysId);
         customizer.accept(builder);
         return builder;
     }
@@ -200,18 +205,18 @@ public class RequestContextWebClientBuilder {
      * Execute any WebClient operation with full context propagation through Reactor Context
      * This method passes the entire RequestContext through the reactive chain
      *
-     * @param systemName The name of the downstream system (for logging/metrics)
+     * @param extSysId The external system ID (for system-specific field propagation)
      * @param baseUrl Target system base URL
      * @param operation Function that takes a WebClient and returns a Mono
      * @param contextService The RequestContextService instance
      * @return Mono with full context propagation
      */
-    public static <T> Mono<T> executeWithReactorContext(String systemName, String baseUrl,
+    public static <T> Mono<T> executeWithReactorContext(String extSysId, String baseUrl,
                                                         Function<WebClient, Mono<T>> operation,
                                                         RequestContextService contextService,
                                                         RequestContextWebClientBuilder builder) {
 
-        WebClient webClient = builder.createForSystem(systemName)
+        WebClient webClient = builder.createForSystem(extSysId)
                 .baseUrl(baseUrl)
                 .build();
 
@@ -257,7 +262,7 @@ public class RequestContextWebClientBuilder {
     public static Mono<String> getFieldFromReactorContext(String fieldName) {
         return getContextFromReactorContext()
                 .map(context -> context.get(fieldName))
-                .filter(value -> value != null);
+                .filter(Objects::nonNull);
     }
 
     /**

@@ -3,22 +3,18 @@ package com.example.demo.controller;
 import com.example.demo.config.RequestContextWebClientBuilder;
 import com.example.demo.service.RequestContext;
 import com.example.demo.service.RequestContextService;
-import jakarta.servlet.http.HttpServletResponse;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
-import org.springframework.web.context.request.async.DeferredResult;
 import org.springframework.web.reactive.function.client.WebClient;
-import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 
 import java.util.HashMap;
 import java.util.Map;
 import java.util.Optional;
-import java.util.concurrent.CompletableFuture;
 
 /**
  * Test controller for request context field testing
@@ -258,6 +254,97 @@ public class TestController {
             log.error("Error in concurrent zip and block test", e);
             return ResponseEntity.status(500)
                     .body(Map.of("error", "Concurrent zip and block test failed: " + e.getMessage()));
+        }
+    }
+
+    /**
+     * Test endpoint for system-specific field propagation
+     * Demonstrates the new extSysIds feature where fields can be configured
+     * to only propagate to specific external systems
+     */
+    @GetMapping("/system-specific-propagation")
+    public ResponseEntity<Map<String, Object>> testSystemSpecificPropagation() {
+        log.info("Testing system-specific field propagation");
+
+        try {
+            // Create WebClients for different systems with specific extSysIds
+            WebClient userServiceClient = webClientBuilder.createForSystem("user-service")
+                    .baseUrl("http://localhost:8089")
+                    .build();
+
+            WebClient profileServiceClient = webClientBuilder.createForSystem("profile-service")
+                    .baseUrl("http://localhost:8089")
+                    .build();
+
+            WebClient paymentServiceClient = webClientBuilder.createForSystem("payment-service")
+                    .baseUrl("http://localhost:8089")
+                    .build();
+
+            WebClient notificationServiceClient = webClientBuilder.createForSystem("notification-service")
+                    .baseUrl("http://localhost:8089")
+                    .build();
+
+            // Get current context for propagation
+            Optional<RequestContext> currentContext = requestContextService.getCurrentContext();
+
+            // Make calls to different systems
+            Mono<Map> userCall = userServiceClient.get()
+                    .uri("/user-service/users/test-user")
+                    .retrieve()
+                    .bodyToMono(Map.class);
+
+            Mono<Map> profileCall = profileServiceClient.get()
+                    .uri("/profile-service/profiles/test-user")
+                    .retrieve()
+                    .bodyToMono(Map.class);
+
+            Mono<Map> paymentCall = paymentServiceClient.get()
+                    .uri("/payment-service/accounts/test-user")
+                    .retrieve()
+                    .bodyToMono(Map.class);
+
+            Mono<Map> notificationCall = notificationServiceClient.get()
+                    .uri("/notification-service/preferences/test-user")
+                    .retrieve()
+                    .bodyToMono(Map.class);
+
+            // Add context to all calls if available
+            if (currentContext.isPresent()) {
+                RequestContext context = currentContext.get();
+                userCall = userCall.contextWrite(reactor.util.context.Context.of("REQUEST_CONTEXT", context));
+                profileCall = profileCall.contextWrite(reactor.util.context.Context.of("REQUEST_CONTEXT", context));
+                paymentCall = paymentCall.contextWrite(reactor.util.context.Context.of("REQUEST_CONTEXT", context));
+                notificationCall = notificationCall.contextWrite(reactor.util.context.Context.of("REQUEST_CONTEXT", context));
+            }
+
+            // Execute all calls concurrently
+            Mono<Map<String, Object>> allResults = Mono.zip(userCall, profileCall, paymentCall, notificationCall)
+                    .map(tuple -> {
+                        Map<String, Object> results = new HashMap<>();
+                        results.put("userService", tuple.getT1());
+                        results.put("profileService", tuple.getT2());
+                        results.put("paymentService", tuple.getT3());
+                        results.put("notificationService", tuple.getT4());
+                        return results;
+                    });
+
+            // Block and get results
+            Map<String, Object> propagationResults = allResults.block();
+
+            // Build response
+            Map<String, Object> response = new HashMap<>();
+            response.put("message", "System-specific propagation test completed");
+            response.put("propagationResults", propagationResults);
+            response.put("contextFields", getAllContextFields());
+
+            return ResponseEntity.ok(response);
+
+        } catch (Exception e) {
+            log.error("Error in system-specific propagation test", e);
+            return ResponseEntity.status(500).body(Map.of(
+                    "error", "Internal server error",
+                    "message", e.getMessage()
+            ));
         }
     }
 

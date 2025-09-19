@@ -1,10 +1,10 @@
 package com.example.demo.filter;
 
 
+import com.example.demo.service.MaskingHelper;
 import com.example.demo.service.RequestContext;
 import com.example.demo.service.RequestContextEnricher;
 import com.example.demo.service.RequestContextEnricher.PropagationData;
-import com.example.demo.service.MaskingHelper;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 import org.springframework.web.reactive.function.client.ClientRequest;
@@ -47,6 +47,17 @@ public class RequestContextWebClientPropagationFilter {
     }
 
     /**
+     * Creates an ExchangeFilterFunction for a specific external system
+     * Only propagates fields configured for the specified system
+     * @param extSysId The external system ID
+     * @return ExchangeFilterFunction for WebClient with system-specific filtering
+     */
+    public ExchangeFilterFunction createFilterForSystem(String extSysId) {
+        return ExchangeFilterFunction.ofRequestProcessor(clientRequest ->
+            propagateContextHeadersForSystem(clientRequest, extSysId));
+    }
+
+    /**
      * Adds configured context headers to the outbound request
      * @param clientRequest The original request
      * @return Modified request with context headers
@@ -79,6 +90,49 @@ public class RequestContextWebClientPropagationFilter {
         if (log.isDebugEnabled()) {
             log.debug("Propagated context to {} - RequestId: {}",
                     clientRequest.url(), context.get("requestId"));
+        }
+
+        return Mono.just(modifiedRequest);
+    }
+
+    /**
+     * Propagate context headers for a specific external system
+     * Only includes fields configured for the target system
+     */
+    private Mono<ClientRequest> propagateContextHeadersForSystem(ClientRequest clientRequest, String extSysId) {
+        // Get current context from ThreadLocal or Reactor Context
+        Optional<RequestContext> contextOpt = RequestContext.getCurrentContext();
+
+        if (contextOpt.isEmpty()) {
+            log.debug("No RequestContext available for propagation to system: {}", extSysId);
+            return Mono.just(clientRequest);
+        }
+
+        RequestContext context = contextOpt.get();
+        ClientRequest.Builder requestBuilder = ClientRequest.from(clientRequest);
+
+        // Always propagate core tracing headers
+        propagateCoreHeaders(context, requestBuilder);
+
+        // Use enricher to get propagation data
+        Map<String, PropagationData> propagationData = enricher.extractForDownstreamPropagation(context);
+
+        // Apply propagation data to request, filtering by system
+        propagationData.forEach((fieldName, data) -> {
+            if (data.shouldPropagateToSystem(extSysId)) {
+                applyPropagationData(requestBuilder, data, fieldName);
+                log.debug("Applied field {} to system {} (system-specific)", fieldName, extSysId);
+            } else {
+                log.debug("Skipped field {} for system {} (not in extSysIds: {})",
+                    fieldName, extSysId, data.getExtSysIds());
+            }
+        });
+
+        ClientRequest modifiedRequest = requestBuilder.build();
+
+        if (log.isDebugEnabled()) {
+            log.debug("Propagated context to system {} - RequestId: {}",
+                    extSysId, context.get("requestId"));
         }
 
         return Mono.just(modifiedRequest);

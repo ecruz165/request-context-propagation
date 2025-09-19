@@ -1,8 +1,8 @@
 package com.example.demo.filter;
 
-import com.example.demo.service.RequestContext;
 import com.example.demo.config.props.RequestContextProperties;
 import com.example.demo.config.props.RequestContextProperties.FieldConfiguration;
+import com.example.demo.service.RequestContext;
 import com.example.demo.service.RequestContextService;
 import lombok.extern.slf4j.Slf4j;
 import org.slf4j.MDC;

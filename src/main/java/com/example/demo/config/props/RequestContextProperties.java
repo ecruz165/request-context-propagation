@@ -8,6 +8,7 @@ import org.springframework.core.Ordered;
 import org.springframework.validation.annotation.Validated;
 
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 
 /**
@@ -201,6 +202,17 @@ public class RequestContextProperties {
          * Conditional expression for enrichment (SpEL)
          */
         private String condition;
+
+        /**
+         * External system IDs that this field should be propagated to.
+         * If empty or null, field is propagated to all systems (default behavior).
+         * If specified, field is only propagated to WebClients with matching extSysId.
+         *
+         * Examples:
+         * - extSysIds: ["user-service", "profile-service"] - only propagate to these systems
+         * - extSysIds: [] or null - propagate to all systems (default)
+         */
+        private List<String> extSysIds;
     }
 
     /**

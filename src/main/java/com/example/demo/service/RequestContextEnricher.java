@@ -1,6 +1,5 @@
 package com.example.demo.service;
 
-import com.example.demo.service.RequestContext;
 import com.example.demo.config.props.RequestContextProperties;
 import com.example.demo.config.props.RequestContextProperties.EnrichmentType;
 import com.example.demo.config.props.RequestContextProperties.FieldConfiguration;
@@ -14,6 +13,7 @@ import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
 import java.util.Base64;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 
 /**
@@ -184,7 +184,9 @@ public class RequestContextEnricher {
                 outbound.getEnrichAs(),
                 outbound.getKey(),
                 transformedValue,
-                isSensitive(fieldConfig)
+                isSensitive(fieldConfig),
+                getMaskingPattern(fieldConfig),
+                outbound.getExtSysIds()
         );
     }
 
@@ -215,6 +217,16 @@ public class RequestContextEnricher {
     }
 
     /**
+     * Get masking pattern for field
+     */
+    private String getMaskingPattern(FieldConfiguration fieldConfig) {
+        if (fieldConfig.getSecurity() != null && fieldConfig.getSecurity().getMasking() != null) {
+            return fieldConfig.getSecurity().getMasking();
+        }
+        return "***";
+    }
+
+    /**
      * Data structure for propagation information
      */
     @Getter
@@ -224,17 +236,38 @@ public class RequestContextEnricher {
         private final String value;
         private final boolean sensitive;
         private final String maskingPattern;
+        private final List<String> extSysIds;
 
         public PropagationData(EnrichmentType enrichmentType, String key, String value, boolean sensitive) {
-            this(enrichmentType, key, value, sensitive, "***");
+            this(enrichmentType, key, value, sensitive, "***", null);
         }
 
         public PropagationData(EnrichmentType enrichmentType, String key, String value, boolean sensitive, String maskingPattern) {
+            this(enrichmentType, key, value, sensitive, maskingPattern, null);
+        }
+
+        public PropagationData(EnrichmentType enrichmentType, String key, String value, boolean sensitive, String maskingPattern, List<String> extSysIds) {
             this.enrichmentType = enrichmentType;
             this.key = key;
             this.value = value;
             this.sensitive = sensitive;
             this.maskingPattern = maskingPattern != null ? maskingPattern : "***";
+            this.extSysIds = extSysIds;
+        }
+
+        /**
+         * Check if this field should be propagated to the specified system
+         * @param targetExtSysId The external system ID of the target WebClient
+         * @return true if field should be propagated, false otherwise
+         */
+        public boolean shouldPropagateToSystem(String targetExtSysId) {
+            // If no extSysIds specified, propagate to all systems (default behavior)
+            if (extSysIds == null || extSysIds.isEmpty()) {
+                return true;
+            }
+
+            // If extSysIds specified, only propagate to matching systems
+            return extSysIds.contains(targetExtSysId);
         }
 
         public String getMaskedValue(MaskingHelper maskingHelper) {
@@ -248,8 +281,8 @@ public class RequestContextEnricher {
 
         @Override
         public String toString() {
-            return String.format("PropagationData{type=%s, key='%s', value='%s', sensitive=%s, pattern='%s'}",
-                    enrichmentType, key, sensitive ? "***" : value, sensitive, maskingPattern);
+            return String.format("PropagationData{type=%s, key='%s', value='%s', sensitive=%s, pattern='%s', extSysIds=%s}",
+                    enrichmentType, key, sensitive ? "***" : value, sensitive, maskingPattern, extSysIds);
         }
 
     }

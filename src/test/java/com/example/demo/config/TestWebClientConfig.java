@@ -2,13 +2,9 @@ package com.example.demo.config;
 
 import com.example.demo.filter.RequestContextWebClientPropagationFilter;
 import com.example.demo.service.RequestContextService;
-// ContextAwareScheduler removed for WebClient-focused architecture
 import org.springframework.boot.test.context.TestConfiguration;
 import org.springframework.context.annotation.Bean;
 import org.springframework.web.reactive.function.client.WebClient;
-import reactor.netty.http.client.HttpClient;
-import reactor.netty.resources.ConnectionProvider;
-import org.springframework.http.client.reactive.ReactorClientHttpConnector;
 
 /**
  * Test configuration for WebClient with propagation filter and context-aware scheduler
