@@ -1,4 +1,4 @@
-package com.example.demo.config;
+package com.example.demo.service;
 
 import jakarta.servlet.http.HttpServletRequest;
 import lombok.Data;
@@ -73,43 +73,69 @@ public class RequestContext {
     }
 
     /**
-     * Get all masked values (returns a copy)
+     * Alias for getAllValues() for compatibility
      */
-    public Map<String, String> getAllMaskedValues() {
-        return new HashMap<>(maskedValues);
+    public Map<String, String> getAll() {
+        return getAllValues();
     }
 
     /**
-     * Get all values with appropriate masking applied.
-     * Returns masked values for sensitive fields, raw values for non-sensitive fields.
-     */
-    public Map<String, String> getAllValuesWithMasking() {
-        Map<String, String> result = new HashMap<>(values);
-        // Override with masked values where they exist
-        result.putAll(maskedValues);
-        return result;
-    }
-
-    /**
-     * Check if context contains a key
+     * Check if a key exists in the context
      */
     public boolean containsKey(String key) {
         return values.containsKey(key);
     }
 
     /**
-     * Get the number of values in context
+     * Remove a value from the context
+     */
+    public String remove(String key) {
+        maskedValues.remove(key); // Also remove masked value if exists
+        return values.remove(key);
+    }
+
+    /**
+     * Get the number of values in the context
      */
     public int size() {
         return values.size();
     }
 
     /**
-     * Clear all values from context
+     * Check if the context is empty
+     */
+    public boolean isEmpty() {
+        return values.isEmpty();
+    }
+
+    /**
+     * Clear all values from the context
      */
     public void clear() {
         values.clear();
         maskedValues.clear();
+    }
+
+    /**
+     * Get all field names
+     */
+    public java.util.Set<String> keySet() {
+        return values.keySet();
+    }
+
+    /**
+     * Create a summary string of the context for logging
+     */
+    public String toSummary() {
+        if (values.isEmpty()) {
+            return "empty";
+        }
+        return String.format("%d fields: %s", values.size(), String.join(", ", values.keySet()));
+    }
+
+    @Override
+    public String toString() {
+        return String.format("RequestContext{values=%d, masked=%d}", values.size(), maskedValues.size());
     }
 
     // ========================================
@@ -133,11 +159,12 @@ public class RequestContext {
 
     /**
      * Get RequestContext from a specific HttpServletRequest
+     * Package-private - should only be called by RequestContextService
      *
      * @param request The HTTP request
      * @return Optional containing the RequestContext if available
      */
-    public static Optional<RequestContext> getFromRequest(HttpServletRequest request) {
+    static Optional<RequestContext> getFromRequest(HttpServletRequest request) {
         if (request == null) {
             return Optional.empty();
         }
@@ -164,11 +191,12 @@ public class RequestContext {
 
     /**
      * Set RequestContext in a specific HttpServletRequest
+     * Package-private - should only be called by RequestContextService
      *
      * @param request The HTTP request
      * @param context The RequestContext to store
      */
-    public static void setInRequest(HttpServletRequest request, RequestContext context) {
+    static void setInRequest(HttpServletRequest request, RequestContext context) {
         if (request != null && context != null) {
             request.setAttribute(REQUEST_CONTEXT_ATTRIBUTE, context);
         }
@@ -181,25 +209,14 @@ public class RequestContext {
         RequestAttributes requestAttributes = RequestContextHolder.getRequestAttributes();
         if (requestAttributes instanceof ServletRequestAttributes attributes) {
             HttpServletRequest request = attributes.getRequest();
-            clearFromRequest(request);
-        }
-    }
-
-    /**
-     * Remove RequestContext from a specific HttpServletRequest
-     *
-     * @param request The HTTP request
-     */
-    public static void clearFromRequest(HttpServletRequest request) {
-        if (request != null) {
             request.removeAttribute(REQUEST_CONTEXT_ATTRIBUTE);
         }
     }
 
-    @Override
-    public String toString() {
-        return "RequestContext{" +
-                "values=" + values.size() + " fields, " +
-                "masked=" + maskedValues.size() + " fields}";
+    /**
+     * Check if RequestContext exists in the current HTTP request
+     */
+    public static boolean hasCurrentContext() {
+        return getCurrentContext().isPresent();
     }
 }

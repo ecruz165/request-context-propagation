@@ -1,6 +1,6 @@
 package com.example.demo.controller;
 
-import com.example.demo.config.RequestContext;
+import com.example.demo.service.RequestContext;
 import com.example.demo.service.RequestContextService;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.ResponseEntity;

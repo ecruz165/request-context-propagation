@@ -3,7 +3,6 @@ package com.example.demo.service.source;
 import com.example.demo.config.props.RequestContextProperties.EnrichmentType;
 import com.example.demo.config.props.RequestContextProperties.InboundConfig;
 import com.example.demo.config.props.RequestContextProperties.SourceType;
-import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -31,7 +30,7 @@ public class SourceHandlers {
         this.handlers = sourceHandlers.stream()
                 .collect(Collectors.toMap(SourceHandler::sourceType, Function.identity()));
 
-        log.info("Registered {} source handlers: {}",
+        log.debug("Registered {} source handlers: {}",
                 handlers.size(),
                 handlers.keySet().stream().map(Enum::name).sorted().toList());
     }

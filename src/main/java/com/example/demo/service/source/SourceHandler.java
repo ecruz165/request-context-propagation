@@ -3,9 +3,7 @@ package com.example.demo.service.source;
 import com.example.demo.config.props.RequestContextProperties.EnrichmentType;
 import com.example.demo.config.props.RequestContextProperties.InboundConfig;
 import com.example.demo.config.props.RequestContextProperties.SourceType;
-import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
-import lombok.extern.slf4j.Slf4j;
 import org.springframework.web.reactive.function.client.ClientRequest;
 import org.springframework.web.reactive.function.client.ClientResponse;
 

@@ -1,10 +1,10 @@
 package com.example.demo.filter;
 
 
-import com.example.demo.config.RequestContext;
+import com.example.demo.service.RequestContext;
 import com.example.demo.service.RequestContextEnricher;
 import com.example.demo.service.RequestContextEnricher.PropagationData;
-import com.example.demo.util.MaskingHelper;
+import com.example.demo.service.MaskingHelper;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 import org.springframework.web.reactive.function.client.ClientRequest;

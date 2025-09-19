@@ -1,7 +1,6 @@
 package com.example.demo.api;
 
 import com.example.demo.config.BaseApiTest;
-import com.github.tomakehurst.wiremock.client.WireMock;
 import io.restassured.RestAssured;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -9,9 +8,13 @@ import org.junit.jupiter.api.Test;
 import org.springframework.boot.test.web.server.LocalServerPort;
 import org.springframework.test.context.TestPropertySource;
 
-import static com.github.tomakehurst.wiremock.client.WireMock.*;
+import static com.github.tomakehurst.wiremock.client.WireMock.aResponse;
+import static com.github.tomakehurst.wiremock.client.WireMock.equalTo;
+import static com.github.tomakehurst.wiremock.client.WireMock.get;
+import static com.github.tomakehurst.wiremock.client.WireMock.getRequestedFor;
+import static com.github.tomakehurst.wiremock.client.WireMock.matching;
+import static com.github.tomakehurst.wiremock.client.WireMock.urlPathEqualTo;
 import static io.restassured.RestAssured.given;
-import static org.hamcrest.Matchers.*;
 
 /**
  * Simplified test for request context fields that focuses on basic functionality
@@ -441,5 +444,24 @@ public class SimpleRequestContextFieldsTest extends BaseApiTest {
         // Verify user segment propagation for feature flags
         wireMock.verify(getRequestedFor(urlPathEqualTo("/downstream/service"))
                 .withHeader("X-User-Segment", equalTo("premium")));
+    }
+
+    // ========================================
+    // PATTERN 16: Context-Generated Fields
+    // ========================================
+
+    @Test
+    @DisplayName("apiHandler - Context-generated handler method info")
+    void testApiHandler_ContextGeneration() {
+        given()
+        .when()
+            .get("/api/test/downstream")
+        .then()
+            .statusCode(200);
+
+        // Verify downstream propagation of handler info
+        // Should be in format "TestController/testDownstreamCall"
+        wireMock.verify(getRequestedFor(urlPathEqualTo("/downstream/service"))
+                .withHeader("X-API-Handler", matching(".*Controller/.*")));
     }
 }

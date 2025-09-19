@@ -4,7 +4,7 @@ package com.example.demo.filter;
 // FILTER - Initializes context in HttpServletRequest
 // ============================================
 
-import com.example.demo.config.RequestContext;
+import com.example.demo.service.RequestContext;
 import com.example.demo.service.RequestContextService;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
@@ -60,8 +60,8 @@ public class RequestContextFilter extends OncePerRequestFilter implements Ordere
                 // Calculate and log request duration
                 long duration = System.currentTimeMillis() - startTime;
 
-                // Get context to log final state
-                RequestContext.getFromRequest(request).ifPresent(context -> {
+                // Get context to log final state using service proxy
+                contextService.getCurrentContextSafely(request).ifPresent(context -> {
                     // Log request completion with context summary
                     if (log.isInfoEnabled()) {
                         String summary = contextService.getContextSummary(context);

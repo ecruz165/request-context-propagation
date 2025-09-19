@@ -8,7 +8,11 @@ spring:
 
 logging:
   level:
-    com.example.demo: DEBUG
+    # Library should be quiet during tests too, unless debugging
+    com.example.demo: WARN
+    # But enable specific components for test verification if needed
+    # com.example.demo.service.RequestContextService: DEBUG
+    # com.example.demo.service.RequestContextExtractor: DEBUG
     io.restassured: WARN
     org.apache.http: WARN
     org.springframework.web: DEBUG

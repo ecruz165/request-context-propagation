@@ -1,6 +1,6 @@
 package com.example.demo.observability;
 
-import com.example.demo.config.RequestContext;
+import com.example.demo.service.RequestContext;
 import com.example.demo.service.RequestContextService;
 import io.micrometer.observation.Observation;
 import io.micrometer.observation.ObservationFilter;

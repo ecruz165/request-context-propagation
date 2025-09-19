@@ -1,8 +1,9 @@
 package com.example.demo.filter;
 
-import com.example.demo.config.RequestContext;
+import com.example.demo.service.RequestContext;
 import com.example.demo.config.props.RequestContextProperties;
 import com.example.demo.config.props.RequestContextProperties.FieldConfiguration;
+import com.example.demo.service.RequestContextService;
 import lombok.extern.slf4j.Slf4j;
 import org.slf4j.MDC;
 import org.springframework.stereotype.Component;
@@ -22,9 +23,12 @@ import java.util.Optional;
 public class RequestContextWebClientLoggingFilter {
 
     private final RequestContextProperties properties;
+    private final RequestContextService contextService;
 
-    public RequestContextWebClientLoggingFilter(RequestContextProperties properties) {
+    public RequestContextWebClientLoggingFilter(RequestContextProperties properties,
+                                               RequestContextService contextService) {
         this.properties = properties;
+        this.contextService = contextService;
     }
 
     /**
@@ -48,7 +52,7 @@ public class RequestContextWebClientLoggingFilter {
                 .build();
 
         // Simple log with MDC context (MDC fields will be included by log appender)
-        log.info("→ WebClient Request: {} {}",
+        log.debug("→ WebClient Request: {} {}",
                 enrichedRequest.method(),
                 enrichedRequest.url());
 
@@ -67,7 +71,7 @@ public class RequestContextWebClientLoggingFilter {
 
         // Log based on status - MDC fields will be included automatically
         if (response.statusCode().is2xxSuccessful()) {
-            log.info("← WebClient Response: {} [{}ms]",
+            log.debug("← WebClient Response: {} [{}ms]",
                     response.statusCode().value(),
                     duration);
         } else if (response.statusCode().is4xxClientError()) {
@@ -81,7 +85,7 @@ public class RequestContextWebClientLoggingFilter {
                     duration);
                     // response.request().url() not available in this version
         } else {
-            log.info("← WebClient Response: {} [{}ms]",
+            log.debug("← WebClient Response: {} [{}ms]",
                     response.statusCode().value(),
                     duration);
         }
@@ -96,7 +100,7 @@ public class RequestContextWebClientLoggingFilter {
      * Enriches MDC with configured RequestContext fields
      */
     private void enrichMDC() {
-        Optional<RequestContext> contextOpt = RequestContext.getCurrentContext();
+        Optional<RequestContext> contextOpt = contextService.getCurrentContext();
         if (contextOpt.isEmpty()) {
             return;
         }

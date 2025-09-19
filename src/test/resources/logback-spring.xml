@@ -180,7 +180,7 @@
             <appender-ref ref="ASYNC_JSON"/>
         </root>
 
-        <logger name="com.example.demo" level="INFO"/>
+        <logger name="com.example.demo" level="WARN"/>
     </springProfile>
     
     <!-- Specific logger configurations -->
@@ -192,9 +192,8 @@
         <appender-ref ref="CONSOLE"/>
     </logger>
     
-    <!-- Request Context specific logging -->
-    <logger name="com.example.demo.filter.RequestContextExtractionFilter" level="INFO"/>
-    <logger name="com.example.demo.service.RequestContextService" level="INFO"/>
-    <logger name="com.example.demo.service.RequestContextExtractor" level="DEBUG"/>
+    <!-- Request Context specific logging - Library should be quiet by default -->
+    <logger name="com.example.demo" level="WARN"/>
+    <logger name="com.example.demo.service.RequestContextExtractor" level="WARN"/>
     
 </configuration>

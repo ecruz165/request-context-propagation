@@ -4,9 +4,10 @@ package com.example.demo.filter;
 // INTERCEPTOR - Adds authenticated context and handler info
 // ============================================
 
-import com.example.demo.config.RequestContext;
+import com.example.demo.service.RequestContext;
 import com.example.demo.service.RequestContextService;
 import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import lombok.RequiredArgsConstructor;
@@ -16,12 +17,13 @@ import org.springframework.http.HttpInputMessage;
 import org.springframework.http.converter.HttpMessageConverter;
 import org.springframework.stereotype.Component;
 import org.springframework.web.bind.annotation.ControllerAdvice;
+import org.springframework.web.method.HandlerMethod;
 import org.springframework.web.servlet.HandlerInterceptor;
 import org.springframework.web.servlet.ModelAndView;
 import org.springframework.web.servlet.mvc.method.annotation.RequestBodyAdvice;
-import com.fasterxml.jackson.databind.ObjectMapper;
-import java.lang.reflect.Type;
+
 import java.io.IOException;
+import java.lang.reflect.Type;
 
 
 /**
@@ -45,6 +47,11 @@ public class RequestContextInterceptor implements HandlerInterceptor, RequestBod
 
         // Enrich with post auth data using service (excluding BODY sources)
         contextService.enrichWithPostAuthPhaseData(request);
+
+        // Extract context fields (like apiHandler) if handler is available
+        if (handler instanceof HandlerMethod) {
+            contextService.enrichWithContextData((HandlerMethod) handler);
+        }
 
         // Get context for remaining operations
         RequestContext context = contextService.getCurrentContext(request);

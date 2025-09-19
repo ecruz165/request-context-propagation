@@ -2,26 +2,20 @@ package com.example.demo.service;
 
 import com.example.demo.config.props.RequestContextProperties;
 import com.example.demo.config.props.RequestContextProperties.FieldConfiguration;
+import com.example.demo.service.RequestContext;
 import com.example.demo.config.props.RequestContextProperties.GeneratorType;
 import com.example.demo.config.props.RequestContextProperties.InboundConfig;
 import com.example.demo.config.props.RequestContextProperties.TransformationType;
 import com.example.demo.service.source.SourceHandlers;
-import com.example.demo.util.MaskingHelper;
-
 import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.servlet.http.HttpServletRequest;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 
-import java.io.BufferedReader;
-import java.io.IOException;
-import java.net.URLDecoder;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.util.Base64;
-import java.util.List;
-import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.ThreadLocalRandom;
 import java.util.concurrent.atomic.AtomicLong;
@@ -70,7 +64,7 @@ public class RequestContextExtractor {
      * @param context The context to store values in
      */
     public void extractAndStoreValue(String fieldName, FieldConfiguration fieldConfig,
-                                   HttpServletRequest request, com.example.demo.config.RequestContext context) {
+                                   HttpServletRequest request, RequestContext context) {
         if (fieldConfig.getUpstream() == null || fieldConfig.getUpstream().getInbound() == null) {
             log.debug("No upstream inbound configuration for field: {}", fieldName);
             return;
@@ -199,7 +193,7 @@ public class RequestContextExtractor {
      */
     public void extractAndStoreValueFromBody(String fieldName, FieldConfiguration fieldConfig,
                                            com.fasterxml.jackson.databind.JsonNode bodyNode,
-                                           com.example.demo.config.RequestContext context) {
+                                           RequestContext context) {
         if (fieldConfig.getUpstream() == null || fieldConfig.getUpstream().getInbound() == null) {
             return;
         }

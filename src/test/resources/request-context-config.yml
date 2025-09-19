@@ -574,3 +574,25 @@ request-context:
         masking: "***"
       observability:
         includeInLogs: true
+
+    # ========================================
+    # PATTERN 16: Context-Generated Fields
+    # ========================================
+    # Auto-generated from Spring MVC context
+
+    apiHandler:
+      upstream:
+        outbound:
+          enrichAs: "HEADER"
+          key: "X-API-Handler"
+      downstream:
+        outbound:
+          enrichAs: "HEADER"
+          key: "X-API-Handler"
+      observability:
+        logging:
+          mdcKey: "api.handler"
+        tracing:
+          tagName: "api.handler"
+      # This field is provided by framework
+      # Can be sent in upstream responses and downstream requests

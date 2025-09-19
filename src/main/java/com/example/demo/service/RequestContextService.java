@@ -1,6 +1,6 @@
 package com.example.demo.service;
 
-import com.example.demo.config.RequestContext;
+import com.example.demo.service.RequestContext;
 import com.example.demo.config.props.RequestContextProperties;
 import com.example.demo.config.props.RequestContextProperties.CardinalityLevel;
 import com.example.demo.config.props.RequestContextProperties.EnrichmentType;
@@ -12,7 +12,6 @@ import com.example.demo.config.props.RequestContextProperties.OutboundConfig;
 import com.example.demo.config.props.RequestContextProperties.SourceType;
 import com.example.demo.config.props.RequestContextProperties.TracingConfig;
 import com.example.demo.service.source.SourceHandlers;
-import com.example.demo.util.MaskingHelper;
 import com.fasterxml.jackson.databind.JsonNode;
 import jakarta.annotation.PostConstruct;
 import jakarta.servlet.http.HttpServletRequest;
@@ -23,11 +22,16 @@ import org.springframework.stereotype.Service;
 import org.springframework.util.AntPathMatcher;
 import org.springframework.web.context.request.RequestContextHolder;
 import org.springframework.web.context.request.ServletRequestAttributes;
+import org.springframework.web.method.HandlerMethod;
 import org.springframework.web.reactive.function.client.ClientResponse;
 
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashSet;
+import java.util.concurrent.Callable;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.Executor;
+import java.util.function.Supplier;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -93,7 +97,7 @@ public class RequestContextService {
      */
     @PostConstruct
     void initializeFieldSets() {
-        log.info("Initializing RequestContext field sets for optimal performance");
+        log.debug("Initializing RequestContext field sets for optimal performance");
 
         properties.getFields().forEach((fieldName, fieldConfig) -> {
             // Process upstream configuration
@@ -152,7 +156,7 @@ public class RequestContextService {
             allConfiguredFields.put(fieldName, fieldConfig);
         });
 
-        log.info("Initialized field sets: {} upstream inbound, {} metrics fields, {} logging fields, {} tracing fields",
+        log.debug("Initialized field sets: {} upstream inbound, {} metrics fields, {} logging fields, {} tracing fields",
                 upstreamInboundFields.size(),
                 metricsLowCardinalityFields.size() + metricsMediumCardinalityFields.size() + metricsHighCardinalityFields.size(),
                 loggingFields.size(),
@@ -226,7 +230,7 @@ public class RequestContextService {
     // ========================================
 
     /**
-     * Check if field should be included in metrics for the specified cardinality level
+     * Check if a field should be included in metrics for the specified cardinality level
      */
     public boolean isMetricsField(String fieldName, CardinalityLevel level) {
         return switch (level) {
@@ -244,19 +248,7 @@ public class RequestContextService {
         return loggingFields.containsKey(fieldName);
     }
 
-    /**
-     * Check if field should be included in tracing
-     */
-    public boolean isTracingField(String fieldName) {
-        return tracingFields.containsKey(fieldName);
-    }
 
-    /**
-     * Check if field contains sensitive data
-     */
-    public boolean isSensitiveField(String fieldName) {
-        return sensitiveFields.containsKey(fieldName);
-    }
 
     /**
      * Get custom metrics tag name or field name if no custom name configured
@@ -279,12 +271,7 @@ public class RequestContextService {
         return tracingTagNames.getOrDefault(fieldName, fieldName);
     }
 
-    /**
-     * Get masking pattern for sensitive field
-     */
-    public String getMaskingPattern(String fieldName) {
-        return maskingPatterns.get(fieldName);
-    }
+
 
     /**
      * Get the MaskingHelper instance for external use
@@ -311,19 +298,7 @@ public class RequestContextService {
         return new HashSet<>(loggingFields.keySet());
     }
 
-    /**
-     * Get all fields that should be included in tracing
-     */
-    public Set<String> getAllTracingFields() {
-        return new HashSet<>(tracingFields.keySet());
-    }
 
-    /**
-     * Get all fields that should be included in upstream outbound (response enrichment)
-     */
-    public Set<String> getAllUpstreamOutboundFields() {
-        return new HashSet<>(upstreamOutboundFields.keySet());
-    }
 
     /**
      * Get upstream outbound key for field
@@ -339,26 +314,7 @@ public class RequestContextService {
         return upstreamOutboundTypes.get(fieldName);
     }
 
-    /**
-     * Get all required fields
-     */
-    public Set<String> getAllRequiredFields() {
-        return new HashSet<>(requiredFields.keySet());
-    }
 
-    /**
-     * Check if field is required
-     */
-    public boolean isRequiredField(String fieldName) {
-        return requiredFields.containsKey(fieldName);
-    }
-
-    /**
-     * Get all configured field names
-     */
-    public Set<String> getAllConfiguredFields() {
-        return new HashSet<>(allConfiguredFields.keySet());
-    }
 
     /**
      * Check if a field is configured
@@ -390,18 +346,32 @@ public class RequestContextService {
     }
 
     /**
-     * Add a field to the current context if context exists
-     * Does nothing if context is not found
+     * Get current RequestContext from the current thread's HTTP request
+     * Uses Spring's RequestContextHolder to access the current request
+     * Returns Optional.empty() if context is not found (no exception)
      */
-    public void addFieldToCurrentContext(HttpServletRequest request, String key, String value) {
-        try {
-            RequestContext context = getCurrentContext(request);
-            context.put(key, value);
-            log.debug("Added field '{}' = '{}' to current context", key, value);
-        } catch (IllegalStateException e) {
-            log.debug("RequestContext not available, skipping field addition: {}", e.getMessage());
-        }
+    public Optional<RequestContext> getCurrentContext() {
+        return RequestContext.getCurrentContext();
     }
+
+    /**
+     * Get current RequestContext from the current thread's HTTP request
+     * Throws exception if context is not found
+     */
+    public RequestContext getCurrentContextRequired() {
+        return getCurrentContext()
+                .orElseThrow(() -> new IllegalStateException(
+                        "RequestContext not found. Ensure RequestContextFilter is configured."));
+    }
+
+    /**
+     * Set RequestContext in a specific HttpServletRequest
+     * Internal method for framework components
+     */
+    public void setContextInRequest(HttpServletRequest request, RequestContext context) {
+        RequestContext.setInRequest(request, context);
+    }
+
 
     /**
      * Initialize RequestContext from HTTP request (pre-authentication phase)
@@ -417,8 +387,8 @@ public class RequestContextService {
         // Extract all configured pre-authentication phase fields and store in context
         int fieldsExtracted = extractPreAuthPhaseFields(request, context);
 
-        // Store context in request using RequestContext utility method
-        RequestContext.setInRequest(request, context);
+        // Store context in request using service proxy method
+        setContextInRequest(request, context);
 
         // Initialize MDC for logging
         updateMDC(context);
@@ -451,17 +421,54 @@ public class RequestContextService {
     }
 
     /**
-     * Enrich existing RequestContext with JSON BODY sources only
-     * Called after RequestBodyAdvice has captured the body content as JsonNode
+     * Enrich existing RequestContext with context data (like handler method info)
+     * Called by RequestContextInterceptor when handler information is available
      */
-    public RequestContext enrichWithJsonBodySources(com.fasterxml.jackson.databind.JsonNode bodyNode) {
+    public RequestContext enrichWithContextData(HandlerMethod handlerMethod) {
         // Get the current request from RequestContextHolder
         HttpServletRequest request = ((ServletRequestAttributes) RequestContextHolder.getRequestAttributes()).getRequest();
 
-        // Get existing context from request
-        RequestContext context = RequestContext.getFromRequest(request)
-                .orElseThrow(() -> new IllegalStateException(
-                        "RequestContext not found. Ensure RequestContextFilter is configured."));
+        // Get existing context from request using service proxy method
+        RequestContext context = getCurrentContext(request);
+        log.debug("Enriching RequestContext with context data (handler method info)");
+
+        // Get configured context-generated fields
+        Map<String, FieldConfiguration> contextFields = getContextGeneratedFields();
+        int fieldsSet = 0;
+
+        // Set context values for configured fields only
+        for (String fieldName : contextFields.keySet()) {
+            if ("apiHandler".equals(fieldName)) {
+                // Set apiHandler directly - format: "ClassName/methodName"
+                String className = handlerMethod.getBeanType().getSimpleName();
+                String methodName = handlerMethod.getMethod().getName();
+                String apiHandler = className + "/" + methodName;
+
+                context.put(fieldName, apiHandler);
+                log.debug("Set context field '{}' = '{}'", fieldName, apiHandler);
+                fieldsSet++;
+            }
+            // Future context fields can be added here
+        }
+
+        log.debug("Set {} context fields", fieldsSet);
+
+        // Update MDC with new fields
+        updateMDC(context);
+
+        return context;
+    }
+
+    /**
+     * Enrich existing RequestContext with JSON BODY sources only
+     * Called after RequestBodyAdvice has captured the body content as JsonNode
+     */
+    public RequestContext enrichWithJsonBodySources(JsonNode bodyNode) {
+        // Get the current request from RequestContextHolder
+        HttpServletRequest request = ((ServletRequestAttributes) RequestContextHolder.getRequestAttributes()).getRequest();
+
+        // Get existing context from request using service proxy method
+        RequestContext context = getCurrentContext(request);
         log.debug("Enriching RequestContext with JSON BODY sources");
 
         // Extract BODY source fields only
@@ -529,6 +536,29 @@ public class RequestContextService {
     }
 
     /**
+     * Get fields configured for context generation (like handler method info)
+     * These are fields that have observability config but no inbound source (auto-generated)
+     */
+    public Map<String, FieldConfiguration> getContextGeneratedFields() {
+        Map<String, FieldConfiguration> contextFields = new LinkedHashMap<>();
+
+        for (Map.Entry<String, FieldConfiguration> entry : properties.getFields().entrySet()) {
+            FieldConfiguration fieldConfig = entry.getValue();
+
+            // Check if this field has observability config but no inbound source (context-generated)
+            if (fieldConfig.getObservability() != null &&
+                (fieldConfig.getUpstream() == null || fieldConfig.getUpstream().getInbound() == null)) {
+                contextFields.put(entry.getKey(), fieldConfig);
+            }
+        }
+
+        log.debug("Context-generated fields: {}", contextFields.keySet());
+        return contextFields;
+    }
+
+
+
+    /**
      * Extract fields from pre-authentication phase group
      * Returns number of fields extracted
      */
@@ -565,43 +595,6 @@ public class RequestContextService {
         return count;
     }
 
-    /**
-     * Extract fields from post-authentication phase group
-     * Includes PATH, BODY, TOKEN, and CLAIM sources
-     * Returns number of fields extracted
-     */
-    private int extractPostAuthPhaseFields(HttpServletRequest request, RequestContext context) {
-        Map<String, FieldConfiguration> postAuthFields = getPostAuthPhaseExtraction();
-        int count = 0;
-
-        log.debug("Extracting {} post-auth phase fields (PATH, BODY, TOKEN, CLAIM)", postAuthFields.size());
-
-        for (Map.Entry<String, FieldConfiguration> entry : postAuthFields.entrySet()) {
-            String fieldName = entry.getKey();
-            FieldConfiguration fieldConfig = entry.getValue();
-
-            try {
-                // Use the new extractAndStoreValue method that handles masking automatically
-                extractor.extractAndStoreValue(fieldName, fieldConfig, request, context);
-
-                // Check if value was actually stored
-                if (context.containsKey(fieldName)) {
-                    count++;
-                    log.trace("Extracted post-auth field '{}' from source {}",
-                            fieldName, fieldConfig.getUpstream().getInbound().getSource());
-                }
-            } catch (Exception e) {
-                if (isRequired(fieldConfig)) {
-                    throw new IllegalStateException(
-                            "Failed to extract required post-auth field: " + fieldName, e);
-                }
-                log.debug("Failed to extract post-auth field '{}': {}", fieldName, e.getMessage());
-            }
-        }
-
-        log.debug("Extracted {} post-auth fields successfully", count);
-        return count;
-    }
 
     /**
      * Extract fields from post-authentication phase group excluding BODY sources
@@ -645,6 +638,8 @@ public class RequestContextService {
         log.debug("Extracted {} post-auth fields (excluding BODY) successfully", count);
         return count;
     }
+
+
 
     /**
      * Extract JSON BODY sources only (called after RequestBodyAdvice has captured body)
@@ -731,14 +726,6 @@ public class RequestContextService {
     // ========================================
 
     /**
-     * Extract values from context for downstream propagation
-     * Delegates to RequestContextEnricher for processing
-     */
-    public Map<String, RequestContextEnricher.PropagationData> extractForDownstreamPropagation(RequestContext context) {
-        return enricher.extractForDownstreamPropagation(context);
-    }
-
-    /**
      * Enrich context with downstream response data
      * This method was moved from the capture filter for consistency
      */
@@ -757,8 +744,6 @@ public class RequestContextService {
         // Update MDC with any new fields
         updateMDC(context);
     }
-
-
 
     /**
      * Capture a single field from downstream response using the helper pattern
@@ -943,19 +928,7 @@ public class RequestContextService {
         return metricsFields;
     }
 
-    /**
-     * Get all fields configured for metrics (all cardinality levels)
-     */
-    public Map<String, String> getAllMetricsFields(RequestContext context) {
-        Map<String, String> allFields = new LinkedHashMap<>();
 
-        // Add fields in order of cardinality (low to high)
-        allFields.putAll(getMetricsFields(context, CardinalityLevel.LOW));
-        allFields.putAll(getMetricsFields(context, CardinalityLevel.MEDIUM));
-        allFields.putAll(getMetricsFields(context, CardinalityLevel.HIGH));
-
-        return allFields;
-    }
 
     /**
      * Get fields configured for tracing
@@ -1013,59 +986,6 @@ public class RequestContextService {
                 .collect(Collectors.joining(", "));
     }
 
-
-
-    /**
-     * Extract a single field value on demand
-     * Useful for lazy extraction or re-extraction
-     */
-    public String extractField(String fieldName, HttpServletRequest request) {
-        if (!isFieldConfigured(fieldName)) {
-            log.warn("Attempted to extract unconfigured field: {}", fieldName);
-            return null;
-        }
-        return extractor.extractValue(fieldName, request);
-    }
-
-    /**
-     * Get summary of extraction phase groups for debugging and monitoring
-     */
-    public ExtractionPhaseSummary getExtractionPhaseSummary() {
-        Map<String, FieldConfiguration> preAuthFields = getPreAuthPhaseExtraction();
-        Map<String, FieldConfiguration> postAuthFields = getPostAuthPhaseExtraction();
-
-        ExtractionPhaseSummary summary = new ExtractionPhaseSummary();
-        summary.preAuthPhaseFields = preAuthFields.keySet();
-        summary.postAuthPhaseFields = postAuthFields.keySet();
-        summary.preAuthSources = preAuthFields.values().stream()
-                .map(config -> config.getUpstream().getInbound().getSource())
-                .collect(Collectors.toSet());
-        summary.postAuthSources = postAuthFields.values().stream()
-                .map(config -> config.getUpstream().getInbound().getSource())
-                .collect(Collectors.toSet());
-
-        return summary;
-    }
-
-    /**
-     * Summary of extraction phase configuration
-     */
-    public static class ExtractionPhaseSummary {
-        public Set<String> preAuthPhaseFields;
-        public Set<String> postAuthPhaseFields;
-        public Set<SourceType> preAuthSources;
-        public Set<SourceType> postAuthSources;
-
-        @Override
-        public String toString() {
-            return String.format(
-                "ExtractionPhaseSummary{preAuth: %d fields %s, postAuth: %d fields %s}",
-                preAuthPhaseFields.size(), preAuthSources,
-                postAuthPhaseFields.size(), postAuthSources
-            );
-        }
-    }
-
     // ========================================
     // Helper Methods
     // ========================================
@@ -1118,6 +1038,410 @@ public class RequestContextService {
         return fieldConfig.getUpstream() != null &&
                 fieldConfig.getUpstream().getInbound() != null &&
                 fieldConfig.getUpstream().getInbound().isRequired();
+    }
+
+    // ========================================
+    // Programmatic Field Access API
+    // ========================================
+
+    /**
+     * Get a field value from the current request context
+     *
+     * @param fieldName the name of the field to retrieve
+     * @return the field value, or null if not found or no context available
+     */
+    public String getField(String fieldName) {
+        try {
+            HttpServletRequest request = getCurrentRequest();
+            if (request == null) {
+                log.debug("No current request available for getField({})", fieldName);
+                return null;
+            }
+
+            RequestContext context = getCurrentContextSafely(request).orElse(null);
+            if (context == null) {
+                log.debug("No RequestContext available for getField({})", fieldName);
+                return null;
+            }
+
+            return context.get(fieldName);
+        } catch (Exception e) {
+            log.warn("Error getting field '{}': {}", fieldName, e.getMessage());
+            return null;
+        }
+    }
+
+    /**
+     * Set a field value in the current request context
+     * The field will be treated exactly like any other configured field:
+     * - If configured for logging, will update MDC with proper masking
+     * - If configured for metrics, will be included in metric tags
+     * - If configured for tracing, will be added to spans
+     * - If configured as sensitive, will be masked in logs and observability
+     *
+     * @param fieldName the name of the field to set
+     * @param fieldValue the value to set (null to remove the field)
+     * @return true if the field was set successfully, false otherwise
+     */
+    public boolean setField(String fieldName, String fieldValue) {
+        try {
+            HttpServletRequest request = getCurrentRequest();
+            if (request == null) {
+                log.debug("No current request available for setField({}, {})", fieldName, fieldValue);
+                return false;
+            }
+
+            RequestContext context = getCurrentContextSafely(request).orElse(null);
+            if (context == null) {
+                log.debug("No RequestContext available for setField({}, {})", fieldName, fieldValue);
+                return false;
+            }
+
+            // Set or remove the field value
+            if (fieldValue != null) {
+                context.put(fieldName, fieldValue);
+                log.debug("Set field '{}' to value: {}", fieldName,
+                    isSensitiveField(fieldName) ? "***" : fieldValue);
+            } else {
+                context.remove(fieldName);
+                log.debug("Removed field '{}'", fieldName);
+            }
+
+            // Update all observability systems if this field is configured
+            updateObservabilityForField(fieldName, fieldValue);
+
+            return true;
+        } catch (Exception e) {
+            log.warn("Error setting field '{}' to '{}': {}", fieldName, fieldValue, e.getMessage());
+            return false;
+        }
+    }
+
+    /**
+     * Get all field values from the current request context
+     *
+     * @return a map of all field names and values, or empty map if no context available
+     */
+    public Map<String, String> getAllFields() {
+        try {
+            HttpServletRequest request = getCurrentRequest();
+            if (request == null) {
+                log.debug("No current request available for getAllFields()");
+                return Collections.emptyMap();
+            }
+
+            RequestContext context = getCurrentContextSafely(request).orElse(null);
+            if (context == null) {
+                log.debug("No RequestContext available for getAllFields()");
+                return Collections.emptyMap();
+            }
+
+            return new LinkedHashMap<>(context.getAll());
+        } catch (Exception e) {
+            log.warn("Error getting all fields: {}", e.getMessage());
+            return Collections.emptyMap();
+        }
+    }
+
+    /**
+     * Check if a field exists in the current request context
+     *
+     * @param fieldName the name of the field to check
+     * @return true if the field exists and has a non-null value, false otherwise
+     */
+    public boolean hasField(String fieldName) {
+        String value = getField(fieldName);
+        return value != null;
+    }
+
+    /**
+     * Remove a field from the current request context
+     * This is equivalent to calling setField(fieldName, null)
+     *
+     * @param fieldName the name of the field to remove
+     * @return true if the field was removed successfully, false otherwise
+     */
+    public boolean removeField(String fieldName) {
+        return setField(fieldName, null);
+    }
+
+    /**
+     * Add a custom computed field to the context
+     * This is useful for adding runtime-computed values that aren't extracted from requests.
+     * The field will be treated exactly like any configured field:
+     * - If configured in YAML, will follow all observability and security settings
+     * - If not configured, will be stored but not included in logs/metrics/tracing
+     * - Use this for business logic computed values, correlation IDs, etc.
+     *
+     * @param fieldName the name of the custom field
+     * @param fieldValue the computed value
+     * @return true if the field was added successfully, false otherwise
+     */
+    public boolean addCustomField(String fieldName, String fieldValue) {
+        if (fieldValue == null) {
+            log.warn("Cannot add custom field '{}' with null value", fieldName);
+            return false;
+        }
+
+        boolean success = setField(fieldName, fieldValue);
+        if (success) {
+            log.debug("Added custom field '{}' with value: {}", fieldName,
+                isSensitiveField(fieldName) ? "***" : fieldValue);
+        }
+        return success;
+    }
+
+    // ========================================
+    // Helper Methods
+    // ========================================
+
+    /**
+     * Get the current HttpServletRequest from RequestContextHolder
+     */
+    private HttpServletRequest getCurrentRequest() {
+        try {
+            ServletRequestAttributes attributes = (ServletRequestAttributes) RequestContextHolder.getRequestAttributes();
+            return attributes != null ? attributes.getRequest() : null;
+        } catch (Exception e) {
+            log.debug("Could not get current request: {}", e.getMessage());
+            return null;
+        }
+    }
+
+    /**
+     * Update all observability systems for a specific field if it's configured
+     * This ensures programmatically set fields are treated exactly like extracted fields
+     */
+    private void updateObservabilityForField(String fieldName, String fieldValue) {
+        try {
+            FieldConfiguration fieldConfig = properties.getFields().get(fieldName);
+            if (fieldConfig == null || fieldConfig.getObservability() == null) {
+                // Field not configured for observability - store but don't propagate
+                log.trace("Field '{}' not configured for observability", fieldName);
+                return;
+            }
+
+            // Update MDC for logging
+            updateMDCForConfiguredField(fieldConfig, fieldName, fieldValue);
+
+            // Note: Metrics and tracing are typically updated during request processing
+            // The field will be automatically included when getMetricsFields() and
+            // getTracingFields() are called by the observability components
+
+        } catch (Exception e) {
+            log.debug("Could not update observability for field '{}': {}", fieldName, e.getMessage());
+        }
+    }
+
+    /**
+     * Update MDC for a configured field with proper masking
+     */
+    private void updateMDCForConfiguredField(FieldConfiguration fieldConfig, String fieldName, String fieldValue) {
+        try {
+            LoggingConfig loggingConfig = fieldConfig.getObservability().getLogging();
+            if (loggingConfig != null && loggingConfig.getMdcKey() != null) {
+                if (fieldValue != null) {
+                    // Apply masking if field is sensitive
+                    String mdcValue = fieldValue;
+                    if (isSensitive(fieldConfig)) {
+                        // Simple masking for now - TODO: integrate with MaskingHelper properly
+                        mdcValue = "***";
+                    }
+                    MDC.put(loggingConfig.getMdcKey(), mdcValue);
+                    log.trace("Updated MDC key '{}' for field '{}' with masked value",
+                        loggingConfig.getMdcKey(), fieldName);
+                } else {
+                    MDC.remove(loggingConfig.getMdcKey());
+                    log.trace("Removed MDC key '{}' for field '{}'", loggingConfig.getMdcKey(), fieldName);
+                }
+            }
+        } catch (Exception e) {
+            log.debug("Could not update MDC for field '{}': {}", fieldName, e.getMessage());
+        }
+    }
+
+    /**
+     * Check if a field is configured as sensitive
+     */
+    private boolean isSensitiveField(String fieldName) {
+        FieldConfiguration fieldConfig = properties.getFields().get(fieldName);
+        return fieldConfig != null && isSensitive(fieldConfig);
+    }
+
+    // ========================================
+    // Programmatic Field Configuration API
+    // ========================================
+
+    /**
+     * Add a field configuration programmatically at runtime
+     * This allows dynamic registration of new fields with full observability support
+     *
+     * @param fieldName the name of the field to configure
+     * @param fieldConfig the complete field configuration
+     * @return true if the configuration was added successfully, false otherwise
+     */
+    public boolean addFieldConfiguration(String fieldName, FieldConfiguration fieldConfig) {
+        try {
+            if (fieldName == null || fieldName.trim().isEmpty()) {
+                log.warn("Cannot add field configuration with null or empty field name");
+                return false;
+            }
+
+            if (fieldConfig == null) {
+                log.warn("Cannot add null field configuration for field '{}'", fieldName);
+                return false;
+            }
+
+            // Add to the properties map (this modifies the runtime configuration)
+            properties.getFields().put(fieldName, fieldConfig);
+
+            // Also add to the allConfiguredFields map for consistency
+            allConfiguredFields.put(fieldName, fieldConfig);
+
+            log.debug("Added programmatic field configuration for field '{}' with observability: {}",
+                fieldName, fieldConfig.getObservability() != null);
+
+            return true;
+        } catch (Exception e) {
+            log.warn("Error adding field configuration for '{}': {}", fieldName, e.getMessage());
+            return false;
+        }
+    }
+
+    /**
+     * Remove a field configuration programmatically
+     * This will stop the field from being included in observability systems
+     *
+     * @param fieldName the name of the field configuration to remove
+     * @return true if the configuration was removed successfully, false otherwise
+     */
+    public boolean removeFieldConfiguration(String fieldName) {
+        try {
+            FieldConfiguration removed = properties.getFields().remove(fieldName);
+            // Also remove from allConfiguredFields for consistency
+            FieldConfiguration removedFromAll = allConfiguredFields.remove(fieldName);
+
+            if (removed != null || removedFromAll != null) {
+                log.debug("Removed programmatic field configuration for field '{}'", fieldName);
+
+                // Clean up MDC if the field was configured for logging
+                FieldConfiguration configToCheck = removed != null ? removed : removedFromAll;
+                if (configToCheck.getObservability() != null &&
+                    configToCheck.getObservability().getLogging() != null &&
+                    configToCheck.getObservability().getLogging().getMdcKey() != null) {
+                    MDC.remove(configToCheck.getObservability().getLogging().getMdcKey());
+                }
+
+                return true;
+            } else {
+                log.debug("No field configuration found to remove for field '{}'", fieldName);
+                return false;
+            }
+        } catch (Exception e) {
+            log.warn("Error removing field configuration for '{}': {}", fieldName, e.getMessage());
+            return false;
+        }
+    }
+
+    /**
+     * Get a field configuration
+     *
+     * @param fieldName the name of the field
+     * @return the field configuration, or null if not configured
+     */
+    public FieldConfiguration getFieldConfiguration(String fieldName) {
+        return properties.getFields().get(fieldName);
+    }
+
+
+
+    /**
+     * Get all configured field names
+     *
+     * @return a set of all configured field names
+     */
+    public Set<String> getConfiguredFieldNames() {
+        return new HashSet<>(properties.getFields().keySet());
+    }
+
+    /**
+     * Add a simple field configuration for logging only
+     * Convenience method for quickly adding fields that should appear in logs
+     *
+     * @param fieldName the name of the field
+     * @param mdcKey the MDC key to use for logging
+     * @param sensitive whether the field contains sensitive data
+     * @return true if the configuration was added successfully, false otherwise
+     */
+    public boolean addLoggingField(String fieldName, String mdcKey, boolean sensitive) {
+        try {
+            // Create logging configuration
+            LoggingConfig loggingConfig = new LoggingConfig();
+            loggingConfig.setMdcKey(mdcKey);
+
+            // Create observability configuration
+            RequestContextProperties.ObservabilityConfig observabilityConfig =
+                new RequestContextProperties.ObservabilityConfig();
+            observabilityConfig.setLogging(loggingConfig);
+
+            // Create field configuration
+            FieldConfiguration fieldConfig = new FieldConfiguration();
+            fieldConfig.setObservability(observabilityConfig);
+
+            // Set up security if sensitive
+            if (sensitive) {
+                RequestContextProperties.SecurityConfig securityConfig =
+                    new RequestContextProperties.SecurityConfig();
+                securityConfig.setSensitive(true);
+                securityConfig.setMasking("***");
+                fieldConfig.setSecurity(securityConfig);
+            }
+
+            return addFieldConfiguration(fieldName, fieldConfig);
+        } catch (Exception e) {
+            log.warn("Error adding logging field configuration for '{}': {}", fieldName, e.getMessage());
+            return false;
+        }
+    }
+
+    /**
+     * Add a field configuration for metrics with specified cardinality
+     * Convenience method for adding fields that should appear in metrics
+     *
+     * @param fieldName the name of the field
+     * @param cardinality the cardinality level (LOW, MEDIUM, HIGH)
+     * @param sensitive whether the field contains sensitive data
+     * @return true if the configuration was added successfully, false otherwise
+     */
+    public boolean addMetricsField(String fieldName, CardinalityLevel cardinality, boolean sensitive) {
+        try {
+            // Create metrics configuration
+            MetricsConfig metricsConfig = new MetricsConfig();
+            metricsConfig.setCardinality(cardinality);
+
+            // Create observability configuration
+            RequestContextProperties.ObservabilityConfig observabilityConfig =
+                new RequestContextProperties.ObservabilityConfig();
+            observabilityConfig.setMetrics(metricsConfig);
+
+            // Create field configuration
+            FieldConfiguration fieldConfig = new FieldConfiguration();
+            fieldConfig.setObservability(observabilityConfig);
+
+            // Set up security if sensitive
+            if (sensitive) {
+                RequestContextProperties.SecurityConfig securityConfig =
+                    new RequestContextProperties.SecurityConfig();
+                securityConfig.setSensitive(true);
+                securityConfig.setMasking("***");
+                fieldConfig.setSecurity(securityConfig);
+            }
+
+            return addFieldConfiguration(fieldName, fieldConfig);
+        } catch (Exception e) {
+            log.warn("Error adding metrics field configuration for '{}': {}", fieldName, e.getMessage());
+            return false;
+        }
     }
 
 }

@@ -34,7 +34,7 @@ public class RequestContextConfig implements WebMvcConfigurer {
                 .addPathPatterns("/**")
                 .excludePathPatterns("/actuator/**", "/error/**");
         
-        log.info("Registered RequestContextInterceptor for late-phase extraction (PATH, BODY, TOKEN sources)");
+        log.debug("Registered RequestContextInterceptor for late-phase extraction (PATH, BODY, TOKEN sources)");
     }
     
     /**
@@ -51,7 +51,7 @@ public class RequestContextConfig implements WebMvcConfigurer {
         registration.setOrder(Ordered.HIGHEST_PRECEDENCE + 5); // Even earlier than the filter's own order
         registration.setName("earlyExtractionFilter");
 
-        log.info("Registered EarlyExtractionFilter with order: {}", registration.getOrder());
+        log.debug("Registered EarlyExtractionFilter with order: {}", registration.getOrder());
 
         return registration;
     }

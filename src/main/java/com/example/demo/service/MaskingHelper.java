@@ -1,4 +1,4 @@
-package com.example.demo.util;
+package com.example.demo.service;
 
 import com.example.demo.config.props.RequestContextProperties.FieldConfiguration;
 import lombok.extern.slf4j.Slf4j;
@@ -15,7 +15,7 @@ public class MaskingHelper {
     /**
      * Mask a value based on the field configuration
      */
-    public String maskValue(String value, FieldConfiguration fieldConfig) {
+    String maskValue(String value, FieldConfiguration fieldConfig) {
         if (value == null || value.isEmpty()) {
             return value;
         }
@@ -49,7 +49,7 @@ public class MaskingHelper {
     /**
      * Mask a value using a specific masking pattern
      */
-    public String maskValue(String value, String maskPattern) {
+    String maskValue(String value, String maskPattern) {
         if (value == null || value.isEmpty()) {
             return value;
         }
@@ -90,7 +90,7 @@ public class MaskingHelper {
      * - "***{4}***" -> show middle 4 characters
      * - "{3}-***-{4}" -> show first 3 and last 4 characters
      */
-    private String applyAdvancedMaskPattern(String value, String maskPattern) {
+    String applyAdvancedMaskPattern(String value, String maskPattern) {
         try {
             // Validate pattern first
             if (!isValidAdvancedPattern(maskPattern)) {
@@ -125,9 +125,9 @@ public class MaskingHelper {
 
                     // Determine if this is from start, end, or middle
                     boolean isFromStart = patternIndex == 0 ||
-                        (patternIndex > 0 && maskPattern.charAt(patternIndex - 1) != '*');
+                            (patternIndex > 0 && maskPattern.charAt(patternIndex - 1) != '*');
                     boolean isFromEnd = closeBrace == maskPattern.length() - 1 ||
-                        (closeBrace < maskPattern.length() - 1 && maskPattern.charAt(closeBrace + 1) != '*');
+                            (closeBrace < maskPattern.length() - 1 && maskPattern.charAt(closeBrace + 1) != '*');
 
                     if (isFromStart) {
                         // Show characters from start
@@ -186,7 +186,7 @@ public class MaskingHelper {
     /**
      * Validate advanced pattern syntax
      */
-    private boolean isValidAdvancedPattern(String pattern) {
+    boolean isValidAdvancedPattern(String pattern) {
         if (pattern == null || pattern.isEmpty()) {
             return false;
         }
@@ -237,7 +237,7 @@ public class MaskingHelper {
     /**
      * Apply default email masking (show first char and domain extension)
      */
-    private String applyDefaultEmailMasking(String value) {
+    String applyDefaultEmailMasking(String value) {
         int atIndex = value.indexOf("@");
         if (atIndex <= 0) {
             return "***"; // Not a valid email
@@ -261,7 +261,7 @@ public class MaskingHelper {
     /**
      * Apply email-specific masking
      */
-    private String applyEmailMasking(String value, String maskPattern) {
+    String applyEmailMasking(String value, String maskPattern) {
         int atIndex = value.indexOf("@");
         if (atIndex <= 0) {
             return maskPattern; // Not a valid email, return pattern as-is
@@ -279,14 +279,14 @@ public class MaskingHelper {
         } else {
             // Simple email masking
             return localPart.charAt(0) + "***@***." +
-                   (domainPart.contains(".") ? domainPart.substring(domainPart.lastIndexOf(".") + 1) : "***");
+                    (domainPart.contains(".") ? domainPart.substring(domainPart.lastIndexOf(".") + 1) : "***");
         }
     }
 
     /**
      * Apply legacy partial masking for backward compatibility
      */
-    private String applyLegacyPartialMasking(String value, String maskPattern) {
+    String applyLegacyPartialMasking(String value, String maskPattern) {
         String[] parts = maskPattern.split("-");
         if (parts.length > 1) {
             try {
@@ -310,7 +310,7 @@ public class MaskingHelper {
     /**
      * Check if a masking pattern is valid
      */
-    public boolean isValidMaskingPattern(String pattern) {
+    boolean isValidMaskingPattern(String pattern) {
         if (pattern == null || pattern.isEmpty()) {
             return false;
         }
@@ -337,7 +337,7 @@ public class MaskingHelper {
                     if (!inBrace) return false; // Closing without opening
                     closeBraces++;
                     inBrace = false;
-                    
+
                     // Validate the number inside braces
                     if (numberBuffer.length() == 0) return false;
                     try {
@@ -361,19 +361,19 @@ public class MaskingHelper {
     /**
      * Get a preview of how a value would be masked without actually masking it
      */
-    public String getMaskingPreview(String sampleValue, String maskPattern) {
+    String getMaskingPreview(String sampleValue, String maskPattern) {
         if (sampleValue == null || sampleValue.isEmpty()) {
             return "[empty]";
         }
-        
+
         if (maskPattern == null) {
             return "***";
         }
 
         // Use a sample value if the actual value is too short
-        String valueToMask = sampleValue.length() < 10 ? 
-            sampleValue + "1234567890".substring(0, Math.max(0, 10 - sampleValue.length())) : 
-            sampleValue;
+        String valueToMask = sampleValue.length() < 10 ?
+                sampleValue + "1234567890".substring(0, Math.max(0, 10 - sampleValue.length())) :
+                sampleValue;
 
         return maskValue(valueToMask, maskPattern);
     }
