@@ -327,6 +327,30 @@ request-context:
         includeInMetrics: true
         metricName: "downstream_service_version"
 
+    # Example: Field that WILL be sent back to client (has upstream outbound)
+    downstreamServiceVersionPublic:
+      downstream:
+        inbound:
+          source: "HEADER"
+          key: "X-Service-Version"
+      upstream:
+        outbound:
+          enrichAs: "HEADER"
+          key: "X-Downstream-Service-Version"  # ← Will be sent to client
+      observability:
+        includeInLogs: true
+
+    # Example: Field that will NOT be sent back to client (no upstream outbound)
+    downstreamInternalData:
+      downstream:
+        inbound:
+          source: "HEADER"
+          key: "X-Internal-Processing-Time"
+      # No upstream.outbound = NOT sent to client
+      observability:
+        includeInLogs: true
+        includeInMetrics: true
+
     # Extract response status for monitoring
     downstreamResponseStatus:
       upstream:

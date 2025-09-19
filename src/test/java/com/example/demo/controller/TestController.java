@@ -1,16 +1,24 @@
 package com.example.demo.controller;
 
+import com.example.demo.config.RequestContextWebClientBuilder;
 import com.example.demo.service.RequestContext;
 import com.example.demo.service.RequestContextService;
+import jakarta.servlet.http.HttpServletResponse;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.context.request.async.DeferredResult;
 import org.springframework.web.reactive.function.client.WebClient;
+import reactor.core.publisher.Flux;
+import reactor.core.publisher.Mono;
 
 import java.util.HashMap;
 import java.util.Map;
+import java.util.Optional;
+import java.util.concurrent.CompletableFuture;
 
 /**
  * Test controller for request context field testing
@@ -18,10 +26,16 @@ import java.util.Map;
  */
 @RestController
 @RequestMapping("/api/test")
+@Slf4j
 public class TestController {
 
     @Autowired
     private RequestContextService requestContextService;
+
+    @Autowired
+    private RequestContextWebClientBuilder webClientBuilder;
+
+
 
     @Autowired
     private WebClient webClient;
@@ -84,7 +98,7 @@ public class TestController {
 
         // Pattern 4: Sensitive
         fields.put("sensitiveHeader", context.getMaskedOrOriginal("sensitiveHeader"));
-        
+
         // Pattern 5: Cookies
         fields.put("cookieId1", context.getMaskedOrOriginal("cookieId1"));
         fields.put("cookieId2", context.getMaskedOrOriginal("cookieId2"));
@@ -119,13 +133,13 @@ public class TestController {
         fields.put("applicationId", context.getMaskedOrOriginal("applicationId"));
         fields.put("clientId", context.getMaskedOrOriginal("clientId"));
         fields.put("traceId", context.getMaskedOrOriginal("traceId"));
-        
+
         // Pattern 15: Downstream monitoring context
         fields.put("serviceHealth", context.getMaskedOrOriginal("serviceHealth"));
         fields.put("cacheStatus", context.getMaskedOrOriginal("cacheStatus"));
         fields.put("dbQueryTime", context.getMaskedOrOriginal("dbQueryTime"));
         fields.put("featureFlags", context.getMaskedOrOriginal("featureFlags"));
-        
+
         return fields;
     }
 
@@ -158,7 +172,11 @@ public class TestController {
         fields.put("dbQueryTime", context.getMaskedOrOriginal("dbQueryTime"));
         fields.put("featureFlags", context.getMaskedOrOriginal("featureFlags"));
         fields.put("securityWarnings", context.getMaskedOrOriginal("securityWarnings"));
-        
+
         return fields;
     }
+
+
+
+
 }
