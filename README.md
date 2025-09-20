@@ -72,7 +72,6 @@ That's it! The framework automatically extracts, propagates, and logs your conte
 
 ### Testing & Analysis
 - [**Comprehensive Testing Strategy**](.docs/framework-test-strategy.md) - Multi-layered testing approach
-- [**Test Coverage Analysis**](.docs/test-coverage-analysis.md) - Coverage metrics and gap analysis
 - [**Response Body Buffering**](.docs/framework-downstream-response-body-source-buffering.md) - Technical details on response capture
 
 ## 💻 Common Usage Examples

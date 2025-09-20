@@ -14,18 +14,23 @@ The Request Context Propagation Framework is a production-ready, Spring Boot 3.5
 - **WebClient Integration**: Three filters for propagation, capture, and logging
 
 ## HIGHLIGHTED TESTS
-### Unit tests with mockito 
-- Unit test for HeaderSourceHandler 
-- Unit test for CookieSourceHandler 
-- Unit test for QuerySourceHandler 
-- Unit test for ClaimSourceHandler 
-- Unit test for PathSourceHandler 
-- Unit test for BodySourceHandler 
-- Unit test for RequestContextService
-### API Tests with RestAssured and Wiremock Verify
-- API Tests for Synchronous endpoints to validate all 16 configuration patterns from the Source Type Support Matrix
-- API Tests for Reactive Mono endpoints to validate all 16 configuration patterns from the Source Type Support Matrix
-- API Tests for Asynchronous DeferredResult endpoints to validate all 16 configuration patterns from the Source Type Support Matrix
+
+### Unit Tests with Mockito
+- **BodySourceHandlerTest** - JSONPath extraction logic with comprehensive edge cases
+- **RequestContextServiceProgrammaticTest** - Service API validation and programmatic access
+- **RequestContextWebClientCaptureFilterTest** - WebClient filter behavior testing
+
+### API Tests with RestAssured and WireMock
+- **SimpleRequestContextFieldsTest** - Complete validation of all 16 configuration patterns from Source Type Support Matrix
+- **ConcurrentContextAccessTest** - Multi-threading scenarios and HttpServletRequest storage limitations
+- **ConcurrentZipBlockUpstreamTest** - Reactive concurrent operations with context propagation
+- **DeferredResultReactiveContextTest** - Asynchronous DeferredResult endpoint testing
+- **SystemSpecificPropagationUnitTest** - extSysIds filtering and system-specific propagation
+
+### Integration Tests
+- **BodyDownstreamExtractionIntegrationTest** - JSONPath downstream response extraction
+- **ResponseBodyBufferingIntegrationTest** - Response body consumption handling
+- **ContextAwareWebClientBuilderTest** - WebClient context propagation integration
 
 
 ### Key Business Value
@@ -49,8 +54,9 @@ The framework employs a **multi-layered testing approach** that ensures reliabil
 ### Current Test Infrastructure
 
 #### **Test Statistics (Current State)**
-- **Total Test Classes**: 19 Java test files
-- **Test Categories**: 5 distinct testing approaches
+- **Total Test Classes**: 20 Java test files
+- **Test Categories**: 5 distinct testing approaches (API, Unit, Integration, Performance, Security)
+- **Current Coverage**: 54.4% instruction coverage, 54.8% line coverage, 67.6% method coverage
 - **Coverage Target**: 50% minimum (configured), targeting 80%+ for production
 - **Test Execution Time**: ~10 seconds for full suite
 - **JaCoCo Integration**: Comprehensive coverage reporting with exclusions
@@ -58,26 +64,35 @@ The framework employs a **multi-layered testing approach** that ensures reliabil
 #### **Test Package Structure**
 ```
 src/test/java/com/example/demo/
-├── api/                          # API-level integration tests
+├── api/                          # API-level integration tests (6 classes)
 │   ├── SimpleRequestContextFieldsTest.java      # 16 configuration patterns
 │   ├── ConcurrentContextAccessTest.java         # Multi-threading scenarios
 │   ├── ConcurrentZipBlockUpstreamTest.java      # Reactive concurrent operations
 │   ├── ContextAwareWebClientBuilderTest.java    # WebClient integration
+│   ├── DeferredResultReactiveContextTest.java   # Async DeferredResult testing
 │   └── SystemSpecificPropagationUnitTest.java   # extSysIds filtering
-├── integration/                  # Service integration tests
+├── integration/                  # Service integration tests (2 classes)
 │   ├── BodyDownstreamExtractionIntegrationTest.java  # JSONPath extraction
 │   └── ResponseBodyBufferingIntegrationTest.java     # Response buffering
-├── service/                      # Service-level unit tests
+├── service/                      # Service-level unit tests (3 classes)
 │   ├── RequestContextServiceProgrammaticTest.java    # Programmatic API
+│   ├── ReactiveTestService.java                      # Reactive service helper
 │   └── source/BodySourceHandlerTest.java             # Source handler logic
-├── filter/                       # Filter-level tests
+├── filter/                       # Filter-level tests (1 class)
 │   └── RequestContextWebClientCaptureFilterTest.java # WebClient filters
-├── config/                       # Test infrastructure
+├── config/                       # Test infrastructure (3 classes)
 │   ├── BaseApiTest.java          # Common test setup with WireMock
 │   ├── TestSecurityConfig.java   # Security configuration for tests
 │   └── TestWebClientConfig.java  # WebClient test configuration
-└── utils/                        # Test utilities
-    └── JwtTestHelper.java         # JWT generation for testing
+├── controller/                   # Test controllers (2 classes)
+│   ├── TestController.java       # Main test endpoints
+│   └── ProtectedController.java  # Security-protected endpoints
+├── examples/                     # Integration examples (1 class)
+│   └── WebClientBuilderIntegrationExample.java   # Usage examples
+├── utils/                        # Test utilities (1 class)
+│   └── JwtTestHelper.java         # JWT generation for testing
+├── DemoApplication.java          # Test application entry point
+└── TestApplicationTests.java     # Basic Spring Boot test
 ```
 
 ### **Testing Approach by Layer**
@@ -88,9 +103,12 @@ src/test/java/com/example/demo/
 **Coverage**: All 16 configuration patterns from `request-context-config.yml`
 
 **Key Test Classes:**
-- `SimpleRequestContextFieldsTest` - Core functionality validation
+- `SimpleRequestContextFieldsTest` - Core functionality validation (16 configuration patterns)
+- `ConcurrentContextAccessTest` - Multi-threading and HttpServletRequest storage limitations
 - `ConcurrentZipBlockUpstreamTest` - Reactive operations testing
+- `DeferredResultReactiveContextTest` - Asynchronous DeferredResult endpoint testing
 - `SystemSpecificPropagationUnitTest` - extSysIds filtering validation
+- `ContextAwareWebClientBuilderTest` - WebClient integration testing
 
 **Validation Methods:**
 - Request header propagation to downstream services
@@ -156,6 +174,22 @@ src/test/java/com/example/demo/
 <!-- Target for critical paths: 95%+ -->
 ```
 
+**Current Coverage Metrics (Latest):**
+- **Instruction Coverage**: 54.4% (4067/7473)
+- **Branch Coverage**: 40.7% (363/892)
+- **Line Coverage**: 54.8% (1004/1833)
+- **Method Coverage**: 67.6% (225/333)
+
+**Coverage by Package:**
+- `com.example.demo.autoconfigure`: 100.0% (fully covered)
+- `com.example.demo.config.props`: 90.8% (excellent coverage)
+- `com.example.demo.service.source`: 60.4% (good coverage)
+- `com.example.demo.observability`: 59.7% (good coverage)
+- `com.example.demo.filter`: 56.6% (fair coverage)
+- `com.example.demo.service`: 50.1% (meets minimum)
+- `com.example.demo.config`: 48.5% (below target)
+- `com.example.demo.logging`: 42.5% (needs improvement)
+
 **Coverage Exclusions:**
 - `**/DemoApplication.class` - Main application class
 - `**/config/**/*Config.class` - Configuration classes
@@ -164,24 +198,149 @@ src/test/java/com/example/demo/
 ### **Test Execution Commands**
 ```bash
 # Run all tests with coverage
-mvn clean test jacoco:report
+./mvnw clean test jacoco:report
 
 # Run with coverage verification
-mvn clean verify -Pcoverage-verify
+./mvnw clean verify -Pcoverage-verify
 
 # Run specific test categories
-mvn test -Dtest="*ApiTest" jacoco:report          # API tests only
-mvn test -Dtest="*IntegrationTest" jacoco:report  # Integration tests
-mvn test -Dtest="*ServiceTest" jacoco:report      # Service layer tests
-mvn test -Dtest="*SourceHandlerTest" jacoco:report # Source handler tests
+./mvnw test -Dtest="*ApiTest" jacoco:report          # API tests only
+./mvnw test -Dtest="*IntegrationTest" jacoco:report  # Integration tests
+./mvnw test -Dtest="*ServiceTest" jacoco:report      # Service layer tests
+./mvnw test -Dtest="*SourceHandlerTest" jacoco:report # Source handler tests
 
 # Generate and view coverage reports
-mvn jacoco:report
+./mvnw jacoco:report
 open target/site/jacoco/index.html
 
-# Coverage summary script
-./scripts/coverage-summary.sh
+# Enhanced test execution scripts
+./.scripts/run-coverage.sh        # Complete test suite with coverage
+./.scripts/coverage-summary.sh    # Detailed coverage analysis
+./.scripts/view-coverage.sh       # Open coverage reports in browser
+
+# Run specific test classes
+./mvnw test -Dtest="SimpleRequestContextFieldsTest"
+./mvnw test -Dtest="BodySourceHandlerTest"
+./mvnw test -Dtest="ConcurrentContextAccessTest"
 ```
+
+## 🧪 Current Test Implementation Details
+
+### **Actual Test Classes and Their Coverage**
+
+#### **API Test Layer (6 Classes)**
+
+**1. SimpleRequestContextFieldsTest**
+- **Purpose**: Validates all 16 configuration patterns from `request-context-config.yml`
+- **Test Methods**: 16 test methods covering each configuration pattern
+- **Key Features**: REST Assured + WireMock integration, header/cookie/query/claim/path testing
+- **Coverage**: Complete end-to-end validation of source type matrix
+
+**2. ConcurrentContextAccessTest**
+- **Purpose**: Demonstrates multi-threading limitations with HttpServletRequest storage
+- **Test Methods**: TRUE parallel thread execution, race condition detection
+- **Key Features**: ExecutorService, CountDownLatch synchronization, AtomicInteger counters
+- **Coverage**: Thread safety validation and context isolation testing
+
+**3. ConcurrentZipBlockUpstreamTest**
+- **Purpose**: Reactive concurrent operations with context propagation
+- **Test Methods**: Zip and block operations with multiple downstream services
+- **Key Features**: WebClient reactive streams, concurrent downstream calls
+- **Coverage**: Reactive context preservation and aggregation
+
+**4. DeferredResultReactiveContextTest**
+- **Purpose**: Asynchronous DeferredResult endpoint testing
+- **Test Methods**: Async processing with context propagation
+- **Key Features**: DeferredResult, CompletableFuture, async context handling
+- **Coverage**: Asynchronous request processing validation
+
+**5. SystemSpecificPropagationUnitTest**
+- **Purpose**: extSysIds filtering and system-specific propagation
+- **Test Methods**: Targeted propagation based on system identifiers
+- **Key Features**: extSysIds configuration, selective downstream propagation
+- **Coverage**: System-specific context filtering
+
+**6. ContextAwareWebClientBuilderTest**
+- **Purpose**: WebClient integration and context propagation
+- **Test Methods**: WebClient builder configuration and filter integration
+- **Key Features**: Custom WebClient configuration, filter chain testing
+- **Coverage**: WebClient context propagation validation
+
+#### **Unit Test Layer (3 Classes)**
+
+**1. BodySourceHandlerTest**
+- **Purpose**: JSONPath extraction logic with comprehensive edge cases
+- **Test Methods**: 15+ test methods covering all JSONPath scenarios
+- **Key Features**: Mockito mocking, JSONPath validation, type conversion
+- **Coverage**: Complete source handler logic validation
+
+**2. RequestContextServiceProgrammaticTest**
+- **Purpose**: Service API validation and programmatic access
+- **Test Methods**: Field access, configuration methods, context management
+- **Key Features**: Spring Boot Test, MockHttpServletRequest, service proxy testing
+- **Coverage**: Programmatic API validation
+
+**3. RequestContextWebClientCaptureFilterTest**
+- **Purpose**: WebClient filter behavior testing
+- **Test Methods**: Filter chain execution, response capture, context extraction
+- **Key Features**: Filter testing, WebClient integration
+- **Coverage**: Filter behavior validation
+
+#### **Integration Test Layer (2 Classes)**
+
+**1. BodyDownstreamExtractionIntegrationTest**
+- **Purpose**: JSONPath downstream response extraction
+- **Test Methods**: End-to-end JSONPath extraction from real responses
+- **Key Features**: Integration testing, real HTTP calls, JSONPath validation
+- **Coverage**: Downstream extraction integration
+
+**2. ResponseBodyBufferingIntegrationTest**
+- **Purpose**: Response body consumption handling
+- **Test Methods**: Multiple response body reads, buffering validation
+- **Key Features**: Response body buffering, consumption conflict prevention
+- **Coverage**: Response handling integration
+
+#### **Test Infrastructure (8 Classes)**
+
+**1. BaseApiTest**
+- **Purpose**: Common test setup with WireMock server
+- **Features**: WireMock server lifecycle, port 8089 configuration, test profiles
+- **Usage**: Extended by all API test classes for consistent setup
+
+**2. TestController**
+- **Purpose**: Main test endpoints for API testing
+- **Features**: Multiple endpoint types (sync, async, reactive), context field exposure
+- **Endpoints**: `/api/test/downstream`, `/api/test/reactive`, `/api/test/deferred`
+
+**3. ProtectedController**
+- **Purpose**: Security-protected endpoints for authentication testing
+- **Features**: JWT-protected endpoints, claim extraction testing
+- **Security**: Spring Security integration with JWT authentication
+
+**4. TestSecurityConfig**
+- **Purpose**: Security configuration for tests
+- **Features**: JWT decoder configuration, test security setup
+- **Integration**: Spring Security test configuration
+
+**5. TestWebClientConfig**
+- **Purpose**: WebClient test configuration
+- **Features**: Custom WebClient beans, filter configuration
+- **Integration**: Context-aware WebClient setup
+
+**6. JwtTestHelper**
+- **Purpose**: JWT generation for testing
+- **Features**: JWT token builder, custom claims, test key management
+- **Usage**: Used by claim extraction tests
+
+**7. ReactiveTestService**
+- **Purpose**: Reactive service helper for testing
+- **Features**: Reactive operations, context propagation testing
+- **Integration**: Used by reactive test scenarios
+
+**8. WebClientBuilderIntegrationExample**
+- **Purpose**: Integration examples and usage patterns
+- **Features**: Real-world usage examples, integration patterns
+- **Documentation**: Living documentation through code examples
 
 ### **Test Data & Configuration Patterns**
 
@@ -293,12 +452,16 @@ void testHeaderId1_BasicBidirectional() {
 **Coverage**: JSONPath extraction from request/response bodies
 
 **Test Scenarios:**
-- ✅ JSONPath extraction from downstream responses
-- ✅ Complex JSON structure navigation
-- ✅ Error handling for invalid JSON
+- ✅ JSONPath extraction from downstream responses (`$.data.userId`)
+- ✅ Complex JSON structure navigation with nested objects
+- ✅ Error handling for invalid JSON and malformed JSONPath
 - ✅ Response body buffering to prevent consumption conflicts
-- ✅ Multiple JSONPath expressions
+- ✅ Multiple JSONPath expressions in single response
 - ✅ Type conversion (numbers, booleans to strings)
+- ✅ Complex object extraction returning JSON strings
+- ✅ Array element extraction with index notation
+- ✅ Null value handling and missing path scenarios
+- ✅ Empty response body and non-JSON response handling
 
 ### **2. Framework-Provided Values Testing**
 
@@ -358,11 +521,13 @@ void testApiHandler_ContextGeneration() {
 **Coverage**: Thread safety and context isolation
 
 **Test Scenarios:**
-- ✅ Multiple threads accessing context simultaneously
-- ✅ Parallel execution with thread pools
+- ✅ Multiple threads accessing context simultaneously (demonstrates HttpServletRequest limitations)
+- ✅ Parallel execution with thread pools (context not propagated across threads)
 - ✅ Context isolation between different request threads
-- ✅ Race condition detection
+- ✅ Race condition detection with CountDownLatch synchronization
 - ✅ HttpServletRequest storage limitations vs ThreadLocal behavior
+- ✅ TRUE parallel thread execution with context access attempts
+- ✅ Concurrent context access race conditions with multiple iterations
 
 #### **4.2 Reactive Concurrent Operations**
 **Test Class**: `ConcurrentZipBlockUpstreamTest`
@@ -467,8 +632,8 @@ mvn test -Dtest="*Test" -Dtest.groups="header-tests"
 #### **Full Validation**
 ```bash
 # Complete test suite with coverage
-./scripts/run-coverage.sh
-./scripts/coverage-summary.sh
+./.scripts/run-coverage.sh
+./.scripts/coverage-summary.sh
 ```
 
 ## 📋 Test Quality Assurance
@@ -521,54 +686,8 @@ void testMethod_scenario() {
 mvn jacoco:report
 
 # View coverage by package
-./scripts/coverage-summary.sh
+./.scripts/coverage-summary.sh
 
 # Check specific thresholds
 mvn jacoco:check
 ```
-
-## 🎯 Future Testing Enhancements
-
-### **Planned Improvements**
-
-#### **1. Performance Benchmarking**
-- Load testing with JMeter or Gatling
-- Memory usage profiling
-- Latency impact measurement
-- Throughput analysis under various loads
-
-#### **2. Contract Testing**
-- Pact-based contract testing for downstream services
-- API contract validation
-- Schema evolution testing
-
-#### **3. Chaos Engineering**
-- Network failure simulation
-- Service unavailability testing
-- Partial failure scenarios
-- Recovery behavior validation
-
-#### **4. Security Testing**
-- Penetration testing for sensitive data exposure
-- Authentication bypass attempts
-- Authorization boundary testing
-- Data injection attack prevention
-
-### **Test Automation Enhancements**
-
-#### **1. Test Data Generation**
-- Property-based testing with random data generation
-- Automated test case generation from configuration
-- Edge case discovery through fuzzing
-
-#### **2. Visual Testing**
-- Log output format validation
-- Metrics dashboard testing
-- Documentation accuracy verification
-
-#### **3. Cross-Environment Testing**
-- Multi-environment deployment validation
-- Configuration drift detection
-- Environment-specific behavior testing
-
-This comprehensive testing strategy ensures the Request Context Propagation framework maintains the highest quality standards while providing confidence for production deployments across enterprise environments. 🎯
