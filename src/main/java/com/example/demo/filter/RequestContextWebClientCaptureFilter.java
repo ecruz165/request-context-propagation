@@ -33,41 +33,79 @@ public class RequestContextWebClientCaptureFilter {
     }
 
     /**
-     * Captures configured downstream response headers into RequestContext
+     * Captures configured downstream response data into RequestContext
+     * Handles response body buffering to prevent consumption issues
      * @param clientResponse The response from downstream service
-     * @return Mono with the same response
+     * @return Mono with a new response that can be consumed by the application
      */
     private Mono<ClientResponse> captureResponseHeaders(ClientResponse clientResponse) {
         return Mono.deferContextual(contextView -> {
             // Try to get context from Reactor Context first
             if (contextView.hasKey("REQUEST_CONTEXT")) {
                 RequestContext context = contextView.get("REQUEST_CONTEXT");
-
-                // Use service to enrich context with downstream response data
-                contextService.enrichWithDownstreamResponse(clientResponse, context);
-
-                log.debug("Processed downstream response for RequestId: {} (from Reactor Context)", context.get("requestId"));
-
-                return Mono.just(clientResponse);
+                return processResponseWithContext(clientResponse, context, "Reactor Context");
             }
 
-            // Fallback to ThreadLocal if Reactor Context is not available
-            Optional<RequestContext> contextOpt = RequestContext.getCurrentContext();
+            // Fallback to service if Reactor Context is not available
+            Optional<RequestContext> contextOpt = contextService.getCurrentContext();
 
             if (contextOpt.isEmpty()) {
-                log.debug("No RequestContext available for capturing response headers");
+                log.debug("No RequestContext available for capturing response data");
                 return Mono.just(clientResponse);
             }
 
             RequestContext context = contextOpt.get();
+            return processResponseWithContext(clientResponse, context, "ThreadLocal");
+        });
+    }
 
-            // Use service to enrich context with downstream response data
+    /**
+     * Process response with context, handling body buffering if needed
+     */
+    private Mono<ClientResponse> processResponseWithContext(ClientResponse clientResponse, RequestContext context, String contextSource) {
+        // Check if we need to extract from response body
+        if (contextService.hasDownstreamBodyExtractionFields()) {
+            // Buffer the response body to allow multiple reads
+            return bufferResponseBody(clientResponse)
+                    .map(bufferedResponse -> {
+                        // Use service to enrich context with downstream response data
+                        contextService.enrichWithDownstreamResponse(bufferedResponse, context);
+
+                        log.debug("Processed downstream response for RequestId: {} (from {})",
+                                context.get("requestId"), contextSource);
+
+                        return bufferedResponse;
+                    });
+        } else {
+            // No body extraction needed, process normally
             contextService.enrichWithDownstreamResponse(clientResponse, context);
 
-            log.debug("Processed downstream response for RequestId: {} (from ThreadLocal)", context.get("requestId"));
+            log.debug("Processed downstream response for RequestId: {} (from {})",
+                    context.get("requestId"), contextSource);
 
             return Mono.just(clientResponse);
-        });
+        }
+    }
+
+    /**
+     * Buffer the response body to allow multiple reads
+     * This prevents the "body already consumed" issue
+     */
+    private Mono<ClientResponse> bufferResponseBody(ClientResponse response) {
+        return response.bodyToMono(String.class)
+                .defaultIfEmpty("")
+                .map(bodyContent -> {
+                    // Create a new ClientResponse with the buffered body
+                    return ClientResponse.create(response.statusCode())
+                            .headers(headers -> headers.addAll(response.headers().asHttpHeaders()))
+                            .cookies(cookies -> response.cookies().forEach(cookies::addAll))
+                            .body(bodyContent)
+                            .build();
+                })
+                .onErrorResume(throwable -> {
+                    log.warn("Failed to buffer response body, returning original response: {}", throwable.getMessage());
+                    return Mono.just(response);
+                });
     }
 
 

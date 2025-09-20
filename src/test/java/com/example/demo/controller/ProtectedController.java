@@ -46,7 +46,7 @@ public class ProtectedController {
         Map<String, Object> fields = new HashMap<>();
 
         // Get current context
-        RequestContext context = RequestContext.getCurrentContext().orElse(null);
+        RequestContext context = requestContextService.getCurrentContext().orElse(null);
         if (context == null) {
             return fields; // Return empty map if no context
         }

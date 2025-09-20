@@ -2,9 +2,6 @@ package com.example.demo.service;
 
 import jakarta.servlet.http.HttpServletRequest;
 import lombok.Data;
-import org.springframework.web.context.request.RequestAttributes;
-import org.springframework.web.context.request.RequestContextHolder;
-import org.springframework.web.context.request.ServletRequestAttributes;
 
 import java.util.HashMap;
 import java.util.Map;
@@ -139,23 +136,8 @@ public class RequestContext {
     }
 
     // ========================================
-    // Static methods for accessing current context from HttpServletRequest
+    // Package-private methods for RequestContextService access only
     // ========================================
-
-    /**
-     * Get the current RequestContext from the current HTTP request.
-     * Uses Spring's RequestContextHolder to access the current request.
-     *
-     * @return Optional containing the RequestContext if available
-     */
-    public static Optional<RequestContext> getCurrentContext() {
-        RequestAttributes requestAttributes = RequestContextHolder.getRequestAttributes();
-        if (requestAttributes instanceof ServletRequestAttributes attributes) {
-            HttpServletRequest request = attributes.getRequest();
-            return getFromRequest(request);
-        }
-        return Optional.empty();
-    }
 
     /**
      * Get RequestContext from a specific HttpServletRequest
@@ -177,19 +159,6 @@ public class RequestContext {
     }
 
     /**
-     * Set RequestContext in the current HTTP request
-     *
-     * @param context The RequestContext to store
-     */
-    public static void setCurrentContext(RequestContext context) {
-        RequestAttributes requestAttributes = RequestContextHolder.getRequestAttributes();
-        if (requestAttributes instanceof ServletRequestAttributes attributes) {
-            HttpServletRequest request = attributes.getRequest();
-            setInRequest(request, context);
-        }
-    }
-
-    /**
      * Set RequestContext in a specific HttpServletRequest
      * Package-private - should only be called by RequestContextService
      *
@@ -200,23 +169,5 @@ public class RequestContext {
         if (request != null && context != null) {
             request.setAttribute(REQUEST_CONTEXT_ATTRIBUTE, context);
         }
-    }
-
-    /**
-     * Remove RequestContext from the current HTTP request
-     */
-    public static void clearCurrentContext() {
-        RequestAttributes requestAttributes = RequestContextHolder.getRequestAttributes();
-        if (requestAttributes instanceof ServletRequestAttributes attributes) {
-            HttpServletRequest request = attributes.getRequest();
-            request.removeAttribute(REQUEST_CONTEXT_ATTRIBUTE);
-        }
-    }
-
-    /**
-     * Check if RequestContext exists in the current HTTP request
-     */
-    public static boolean hasCurrentContext() {
-        return getCurrentContext().isPresent();
     }
 }

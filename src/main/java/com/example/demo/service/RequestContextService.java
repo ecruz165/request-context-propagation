@@ -342,7 +342,16 @@ public class RequestContextService {
      * Returns Optional.empty() if context is not found (no exception)
      */
     public Optional<RequestContext> getCurrentContext() {
-        return RequestContext.getCurrentContext();
+        try {
+            ServletRequestAttributes attributes = (ServletRequestAttributes) RequestContextHolder.getRequestAttributes();
+            if (attributes != null) {
+                HttpServletRequest request = attributes.getRequest();
+                return RequestContext.getFromRequest(request);
+            }
+        } catch (Exception e) {
+            log.debug("Could not get current request context: {}", e.getMessage());
+        }
+        return Optional.empty();
     }
 
     /**
@@ -496,7 +505,7 @@ public class RequestContextService {
      */
     public void clearContext() {
         clearMDC();
-        RequestContext.getCurrentContext().ifPresent(RequestContext::clear);
+        getCurrentContext().ifPresent(RequestContext::clear);
     }
 
     // ========================================
@@ -710,6 +719,18 @@ public class RequestContextService {
     // ========================================
     // Extraction Helpers (Delegated to Enricher)
     // ========================================
+
+    /**
+     * Check if there are any downstream fields that require body extraction
+     * This is used by the capture filter to determine if response body buffering is needed
+     */
+    public boolean hasDownstreamBodyExtractionFields() {
+        return downstreamInboundFields.values().stream()
+                .anyMatch(fieldConfig -> {
+                    var inbound = fieldConfig.getDownstream().getInbound();
+                    return inbound.getSource() == SourceType.BODY;
+                });
+    }
 
     /**
      * Enrich context with downstream response data
@@ -977,7 +998,7 @@ public class RequestContextService {
 
     /**
      * Determine if field should be extracted in pre-authentication phase
-     * Pre-auth phase includes: HEADER, QUERY, COOKIE, FORM, SESSION sources
+     * Pre-auth phase includes: HEADER, QUERY, COOKIE sources
      * These can be extracted before Spring Security authentication
      */
     private boolean shouldExtractInPreAuthPhase(FieldConfiguration fieldConfig) {
@@ -991,8 +1012,7 @@ public class RequestContextService {
         // Sources that can be extracted early (before authentication)
         return source == SourceType.HEADER ||
                 source == SourceType.QUERY ||
-                source == SourceType.COOKIE ||
-                source == SourceType.SESSION;
+                source == SourceType.COOKIE;
     }
 
     /**

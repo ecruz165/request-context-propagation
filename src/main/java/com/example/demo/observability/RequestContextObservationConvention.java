@@ -110,7 +110,7 @@ public class RequestContextObservationConvention implements ServerRequestObserva
         if (contextAttr instanceof RequestContext requestContext) {
             return Optional.of(requestContext);
         }
-        return RequestContext.getCurrentContext();
+        return requestContextService.getCurrentContext();
     }
 
 }

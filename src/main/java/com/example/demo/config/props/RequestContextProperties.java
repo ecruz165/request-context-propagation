@@ -677,17 +677,13 @@ public class RequestContextProperties {
         PATH,       // Path variables
         CLAIM,      // Direct JWT claim
         BODY,       // Request body (JSON path)
-        FORM,       // Form data
-        COOKIE,     // HTTP cookies
-        SESSION,    // HTTP session
-        ATTRIBUTE   // Request attribute
+        COOKIE      // HTTP cookies
     }
 
     public enum EnrichmentType {
         HEADER,     // HTTP header
         QUERY,      // Query parameter
-        COOKIE,     // Cookie
-        SESSION     // HTTP session attribute
+        COOKIE      // Cookie
     }
 
     public enum ValueType {

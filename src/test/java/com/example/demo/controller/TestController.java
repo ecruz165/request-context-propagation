@@ -1,6 +1,7 @@
 package com.example.demo.controller;
 
 import com.example.demo.config.RequestContextWebClientBuilder;
+import com.example.demo.service.ReactiveTestService;
 import com.example.demo.service.RequestContext;
 import com.example.demo.service.RequestContextService;
 import lombok.extern.slf4j.Slf4j;
@@ -8,13 +9,16 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.context.request.async.DeferredResult;
 import org.springframework.web.reactive.function.client.WebClient;
 import reactor.core.publisher.Mono;
 
 import java.util.HashMap;
 import java.util.Map;
 import java.util.Optional;
+import java.util.concurrent.CompletableFuture;
 
 /**
  * Test controller for request context field testing
@@ -31,6 +35,8 @@ public class TestController {
     @Autowired
     private RequestContextWebClientBuilder webClientBuilder;
 
+    @Autowired
+    private ReactiveTestService reactiveTestService;
 
 
     @Autowired
@@ -59,6 +65,73 @@ public class TestController {
     }
 
     /**
+     * DeferredResult endpoint that demonstrates real microservice patterns:
+     * - Uses ReactiveTestService to make concurrent WebClient calls
+     * - Blocks reactive streams to get final result
+     * - Propagates upstream context values through reactive chains
+     * - Captures downstream values and propagates them back upstream
+     */
+    @GetMapping("/deferred-reactive-aggregation")
+    public DeferredResult<ResponseEntity<Map<String, Object>>> testDeferredReactiveAggregation(
+            @RequestParam(defaultValue = "test-user") String userId) {
+
+        DeferredResult<ResponseEntity<Map<String, Object>>> deferredResult = new DeferredResult<>(30000L);
+
+        // Process with reactive service (already handles async with block())
+        // Use the reactive test service to aggregate data
+        Map<String, Object> aggregatedData = reactiveTestService.aggregateDataFromMultipleServices(userId);
+
+        // Add current context fields to response
+        Map<String, Object> response = new HashMap<>();
+        response.put("aggregatedData", aggregatedData);
+        response.put("contextFields", getAllContextFields());
+        response.put("downstreamFields", getDownstreamFields());
+        response.put("processingType", "deferred-reactive");
+        response.put("userId", userId);
+
+        deferredResult.setResult(ResponseEntity.ok(response));
+
+
+        return deferredResult;
+    }
+
+    /**
+     * DeferredResult endpoint that tests upstream context usage in reactive streams
+     */
+    @GetMapping("/deferred-upstream-context-test")
+    public DeferredResult<ResponseEntity<Map<String, Object>>> testDeferredUpstreamContext(
+            @RequestParam(defaultValue = "test-value") String testValue) {
+
+        DeferredResult<ResponseEntity<Map<String, Object>>> deferredResult = new DeferredResult<>(15000L);
+
+        // Process asynchronously
+        CompletableFuture.supplyAsync(() -> {
+            try {
+                // Use the reactive test service to test upstream context usage
+                Map<String, Object> testResult = reactiveTestService.testUpstreamContextInReactiveStream(testValue);
+
+                // Add current context fields to response
+                Map<String, Object> response = new HashMap<>();
+                response.put("testResult", testResult);
+                response.put("contextFields", getAllContextFields());
+                response.put("processingType", "deferred-upstream-test");
+                response.put("inputTestValue", testValue);
+
+                return ResponseEntity.ok(response);
+
+            } catch (Exception e) {
+                Map<String, Object> errorResponse = new HashMap<>();
+                errorResponse.put("status", "error");
+                errorResponse.put("message", e.getMessage());
+                errorResponse.put("testValue", testValue);
+                return ResponseEntity.status(500).body(errorResponse);
+            }
+        }).thenAccept(result -> deferredResult.setResult(result));
+
+        return deferredResult;
+    }
+
+    /**
      * Simple endpoint without downstream calls
      * Used for testing extract-only fields
      */
@@ -76,7 +149,7 @@ public class TestController {
         Map<String, Object> fields = new HashMap<>();
 
         // Get current context
-        RequestContext context = RequestContext.getCurrentContext().orElse(null);
+        RequestContext context = requestContextService.getCurrentContext().orElse(null);
         if (context == null) {
             return fields; // Return empty map if no context
         }
@@ -147,7 +220,7 @@ public class TestController {
         Map<String, Object> fields = new HashMap<>();
 
         // Get current context
-        RequestContext context = RequestContext.getCurrentContext().orElse(null);
+        RequestContext context = requestContextService.getCurrentContext().orElse(null);
         if (context == null) {
             return fields; // Return empty map if no context
         }
@@ -255,6 +328,122 @@ public class TestController {
             return ResponseEntity.status(500)
                     .body(Map.of("error", "Concurrent zip and block test failed: " + e.getMessage()));
         }
+    }
+
+    /**
+     * DeferredResult endpoint that demonstrates:
+     * 1. Upstream values available in reactive streams
+     * 2. Concurrent WebClient calls with zip and block
+     * 3. Captured downstream values propagated back as upstream headers
+     * <p>
+     * This simulates real microservice scenarios with async processing
+     */
+    @GetMapping("/deferred-reactive-context")
+    public DeferredResult<ResponseEntity<Map<String, Object>>> testDeferredReactiveContext() {
+        DeferredResult<ResponseEntity<Map<String, Object>>> deferredResult = new DeferredResult<>(30000L);
+
+        // Capture current context for async processing
+        Optional<RequestContext> currentContext = requestContextService.getCurrentContext();
+        String initialRequestId = requestContextService.getField("requestId");
+        String initialCorrelationId = requestContextService.getField("correlationId");
+
+        log.info("Starting DeferredResult with context - RequestId: {}, CorrelationId: {}",
+                initialRequestId, initialCorrelationId);
+
+        // Async processing with context propagation
+        CompletableFuture.supplyAsync(() -> {
+                    try {
+                        // Create WebClients for concurrent calls
+                        WebClient userServiceClient = webClientBuilder.createForSystem("user-service")
+                                .baseUrl("http://localhost:8089")
+                                .build();
+
+                        WebClient profileServiceClient = webClientBuilder.createForSystem("profile-service")
+                                .baseUrl("http://localhost:8089")
+                                .build();
+
+                        WebClient paymentServiceClient = webClientBuilder.createForSystem("payment-service")
+                                .baseUrl("http://localhost:8089")
+                                .build();
+
+                        // Make concurrent calls using reactive streams with context
+                        Mono<Map> userCall = userServiceClient.get()
+                                .uri("/user-service/users/deferred-user")
+                                .retrieve()
+                                .bodyToMono(Map.class);
+
+                        Mono<Map> profileCall = profileServiceClient.get()
+                                .uri("/profile-service/profiles/deferred-user")
+                                .retrieve()
+                                .bodyToMono(Map.class);
+
+                        Mono<Map> paymentCall = paymentServiceClient.get()
+                                .uri("/payment-service/accounts/deferred-user")
+                                .retrieve()
+                                .bodyToMono(Map.class);
+
+                        // Zip all calls together and process results
+                        Mono<Map<String, Object>> combinedMono = Mono.zip(userCall, profileCall, paymentCall)
+                                .map(tuple -> {
+                                    Map<String, Object> combined = new HashMap<>();
+                                    combined.put("user", tuple.getT1());
+                                    combined.put("profile", tuple.getT2());
+                                    combined.put("payment", tuple.getT3());
+                                    combined.put("processingTimestamp", System.currentTimeMillis());
+
+                                    // Add computed values to context for upstream propagation
+                                    String processingTime = String.valueOf(System.currentTimeMillis() - Long.parseLong(initialRequestId.split("-")[0]));
+                                    requestContextService.setField("deferredProcessingTime", processingTime + "ms");
+                                    requestContextService.setField("serviceCallCount", "3");
+
+                                    return combined;
+                                })
+                                // Ensure context is propagated through reactive stream
+                                .transform(mono -> RequestContextWebClientBuilder.propagateUpstreamValues(mono, requestContextService));
+
+                        // Block to get results (triggers upstream propagation)
+                        Map<String, Object> result = RequestContextWebClientBuilder.blockWithUpstreamPropagation(
+                                combinedMono, requestContextService);
+
+                        // Build response with all captured values
+                        Map<String, Object> responseData = new HashMap<>();
+                        responseData.put("message", "DeferredResult reactive context test completed");
+                        responseData.put("initialContext", Map.of(
+                                "requestId", initialRequestId,
+                                "correlationId", initialCorrelationId
+                        ));
+                        responseData.put("serviceResults", result);
+
+                        // Capture all downstream values that were extracted
+                        Map<String, Object> capturedValues = new HashMap<>();
+                        capturedValues.put("downstreamUserVersion", requestContextService.getField("downstreamUserServiceVersion"));
+                        capturedValues.put("downstreamProfileVersion", requestContextService.getField("downstreamProfileServiceVersion"));
+                        capturedValues.put("downstreamPaymentVersion", requestContextService.getField("downstreamPaymentServiceVersion"));
+                        capturedValues.put("deferredProcessingTime", requestContextService.getField("deferredProcessingTime"));
+                        capturedValues.put("serviceCallCount", requestContextService.getField("serviceCallCount"));
+                        responseData.put("capturedValues", capturedValues);
+
+                        // Get all context fields for verification
+                        responseData.put("allContextFields", requestContextService.getAllFields());
+
+                        log.info("DeferredResult completed with captured values: {}", capturedValues);
+
+                        return ResponseEntity.ok(responseData);
+
+                    } catch (Exception e) {
+                        log.error("Error in DeferredResult processing", e);
+                        return ResponseEntity.status(500)
+                                .body(Map.of("error", "DeferredResult processing failed: " + e.getMessage()));
+                    }
+                }).thenAccept(result -> deferredResult.setResult((ResponseEntity<Map<String, Object>>) result))
+                .exceptionally(throwable -> {
+                    log.error("DeferredResult failed", throwable);
+                    deferredResult.setErrorResult(ResponseEntity.status(500)
+                            .body(Map.of("error", "Async processing failed: " + throwable.getMessage())));
+                    return null;
+                });
+
+        return deferredResult;
     }
 
     /**

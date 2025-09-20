@@ -4,6 +4,7 @@ package com.example.demo.filter;
 import com.example.demo.service.MaskingHelper;
 import com.example.demo.service.RequestContext;
 import com.example.demo.service.RequestContextEnricher;
+import com.example.demo.service.RequestContextService;
 import com.example.demo.service.RequestContextEnricher.PropagationData;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
@@ -27,15 +28,18 @@ public class RequestContextWebClientPropagationFilter {
     private final RequestContextEnricher enricher;
     private final MaskingHelper maskingHelper;
     private final com.example.demo.service.source.SourceHandlers sourceHandlers;
+    private final RequestContextService requestContextService;
     private static final String DEFAULT_REQUEST_ID_HEADER = "X-Request-Id";
     private static final String DEFAULT_CORRELATION_ID_HEADER = "X-Correlation-Id";
 
     public RequestContextWebClientPropagationFilter(RequestContextEnricher enricher,
                                                     MaskingHelper maskingHelper,
-                                                    com.example.demo.service.source.SourceHandlers sourceHandlers) {
+                                                    com.example.demo.service.source.SourceHandlers sourceHandlers,
+                                                    RequestContextService requestContextService) {
         this.enricher = enricher;
         this.maskingHelper = maskingHelper;
         this.sourceHandlers = sourceHandlers;
+        this.requestContextService = requestContextService;
     }
 
     /**
@@ -63,8 +67,8 @@ public class RequestContextWebClientPropagationFilter {
      * @return Modified request with context headers
      */
     private Mono<ClientRequest> propagateContextHeaders(ClientRequest clientRequest) {
-        // Get current context from HttpServletRequest
-        Optional<RequestContext> contextOpt = RequestContext.getCurrentContext();
+        // Get current context from RequestContextService
+        Optional<RequestContext> contextOpt = requestContextService.getCurrentContext();
 
         if (contextOpt.isEmpty()) {
             log.debug("No RequestContext available for propagation to {}", clientRequest.url());
@@ -100,8 +104,8 @@ public class RequestContextWebClientPropagationFilter {
      * Only includes fields configured for the target system
      */
     private Mono<ClientRequest> propagateContextHeadersForSystem(ClientRequest clientRequest, String extSysId) {
-        // Get current context from ThreadLocal or Reactor Context
-        Optional<RequestContext> contextOpt = RequestContext.getCurrentContext();
+        // Get current context from RequestContextService
+        Optional<RequestContext> contextOpt = requestContextService.getCurrentContext();
 
         if (contextOpt.isEmpty()) {
             log.debug("No RequestContext available for propagation to system: {}", extSysId);

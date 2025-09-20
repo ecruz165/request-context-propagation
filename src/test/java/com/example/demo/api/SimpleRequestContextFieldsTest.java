@@ -233,23 +233,17 @@ public class SimpleRequestContextFieldsTest extends BaseApiTest {
     }
 
     // ========================================
-    // PATTERN 7: Session Attributes
+    // PATTERN 7: Server-side Data (formerly Session/Attributes)
     // ========================================
+    // Note: ATTRIBUTE source type removed - not reliably supported
+    // This test pattern is now skipped
 
-    @Test
-    @DisplayName("sessionId - Session attribute extraction")
-    void testSessionId_SessionAttribute() {
-        // Session attributes are server-side, so we test without setting them
-        // The system should handle missing session gracefully
-        given()
-        .when()
-            .get("/api/test/downstream")
-        .then()
-            .statusCode(200);
-
-        // Session attributes don't propagate downstream in this test setup
-        wireMock.verify(getRequestedFor(urlPathEqualTo("/downstream/service")));
-    }
+    // @Test
+    // @DisplayName("sessionId - Request attribute extraction")
+    // void testSessionId_RequestAttribute() {
+    //     // REMOVED: ATTRIBUTE source type not reliably supported
+    //     // Use HEADER, CLAIM, or other reliable sources for user identification
+    // }
 
     // ========================================
     // PATTERN 8: JWT Claims (Extract-Only)

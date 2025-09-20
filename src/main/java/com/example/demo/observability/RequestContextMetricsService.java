@@ -31,7 +31,7 @@ public class RequestContextMetricsService {
      * Record a custom metric with RequestContext tags
      */
     public void recordMetric(String metricName, double value) {
-        RequestContext.getCurrentContext().ifPresent(context -> {
+        requestContextService.getCurrentContext().ifPresent(context -> {
             List<io.micrometer.core.instrument.Tag> tags = buildTags(context, CardinalityLevel.LOW);
             meterRegistry.counter(metricName, tags).increment(value);
         });
@@ -41,7 +41,7 @@ public class RequestContextMetricsService {
      * Record timing with RequestContext tags
      */
     public void recordTiming(String metricName, long milliseconds) {
-        RequestContext.getCurrentContext().ifPresent(context -> {
+        requestContextService.getCurrentContext().ifPresent(context -> {
             List<io.micrometer.core.instrument.Tag> tags = buildTags(context, CardinalityLevel.LOW);
             meterRegistry.timer(metricName, tags)
                     .record(java.time.Duration.ofMillis(milliseconds));

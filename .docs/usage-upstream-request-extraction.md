@@ -92,24 +92,19 @@ userId:
       key: "userId"
 ```
 
-### 8. FORM - Extract from Form Data
+
+
+### 8. REMOVED - ATTRIBUTE Source Type
 
 ```yaml
-username:
-  upstream:
-    inbound:
-      source: "FORM"
-      key: "username"
-```
-
-### 9. ATTRIBUTE - Extract from Request Attributes
-
-```yaml
-customData:
-  upstream:
-    inbound:
-      source: "ATTRIBUTE"
-      key: "customAttribute"
+# ATTRIBUTE source type removed - not reliably supported
+# customData:
+#   upstream:
+#     inbound:
+#       source: "ATTRIBUTE"  # ← REMOVED
+#       key: "customAttribute"
+#
+# Use HEADER, CLAIM, or other reliable sources instead
 ```
 
 ## Advanced Features
@@ -222,7 +217,8 @@ request-context:
 ## Key Benefits
 
 - **Early Extraction**: Runs before Spring Security filters
-- **Multiple Sources**: Support for headers, query params, cookies, path, body, and tokens
+- **Multiple Sources**: Support for headers, query params, cookies, path, and tokens
+- **Note**: BODY source only supports downstream response extraction, not upstream request extraction
 - **Fallback Support**: Try multiple sources for the same field
 - **Auto-Generation**: Generate values when not present
 - **Security**: Built-in masking for sensitive data

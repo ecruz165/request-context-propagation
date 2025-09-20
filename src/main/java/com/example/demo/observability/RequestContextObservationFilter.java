@@ -37,7 +37,7 @@ public class RequestContextObservationFilter implements ObservationFilter {
     }
 
     private void enrichWithRequestContext(ServerRequestObservationContext context) {
-        Optional<RequestContext> requestContextOpt = RequestContext.getCurrentContext();
+        Optional<RequestContext> requestContextOpt = requestContextService.getCurrentContext();
         if (requestContextOpt.isEmpty()) {
             return;
         }

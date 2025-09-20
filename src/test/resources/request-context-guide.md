@@ -98,22 +98,28 @@ queryId1:
 - **Propagate** as query parameters
 - **Use case**: API versioning, feature flags
 
-## 🗄️ **Pattern 7: Session Attributes**
+## 📝 **Pattern 7: Server-side Data (formerly Attributes)**
 ```yaml
-sessionId:
+# REMOVED: ATTRIBUTE source type not reliably supported
+# sessionId:
+#   upstream:
+#     inbound:
+#       source: "ATTRIBUTE"  # ← REMOVED
+#       key: "user.session.id"
+#
+# Use HEADER, CLAIM, or other reliable sources instead:
+userId:
   upstream:
     inbound:
-      source: "SESSION"
-      key: "user.session.id"
-    outbound:
-      enrichAs: "SESSION"
-      key: "user.session.id"
+      source: "CLAIM"
+      key: "sub"
+      defaultValue: "anonymous"
   security:
     sensitive: true
 ```
-- **Server-side** session storage
-- **Secure** context persistence
-- **Use case**: User state, shopping carts
+- **ATTRIBUTE source removed** - not reliably supported
+- **Alternative**: Use HEADER, CLAIM, or other reliable sources
+- **Use case**: User identification via JWT claims or headers
 
 ## 🎫 **Pattern 8: JWT Claims (Extract-Only)**
 ```yaml
@@ -231,8 +237,6 @@ sourceConfiguration:
     caseSensitive: false
   cookie:
     normalizeNames: true
-  session:
-    createIfMissing: false
   claim:
     validateSignature: true
 ```

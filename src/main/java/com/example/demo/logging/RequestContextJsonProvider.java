@@ -32,8 +32,11 @@ public class RequestContextJsonProvider extends AbstractFieldJsonProvider<ILoggi
         // Get context from MDC first
         Map<String, String> mdcContext = event.getMDCPropertyMap();
 
-        // Try to get current RequestContext
-        Optional<RequestContext> contextOpt = RequestContext.getCurrentContext();
+        // Try to get current RequestContext via service
+        Optional<RequestContext> contextOpt = Optional.empty();
+        if (requestContextService != null) {
+            contextOpt = requestContextService.getCurrentContext();
+        }
 
         if ((mdcContext != null && !mdcContext.isEmpty()) || contextOpt.isPresent()) {
             generator.writeFieldName(fieldName);

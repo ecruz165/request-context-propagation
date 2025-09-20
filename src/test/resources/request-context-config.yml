@@ -179,20 +179,14 @@ request-context:
         # No outbound = extract-only
     
     # ========================================
-    # PATTERN 7: Session Attributes
+    # PATTERN 7: Server-side Data (formerly Session/Attributes)
     # ========================================
-    
-    sessionId:
-      upstream:
-        inbound:
-          source: "SESSION"
-          key: "user.session.id"
-        outbound:
-          enrichAs: "SESSION"
-          key: "user.session.id"
-      security:
-        sensitive: true
-        masking: "***"
+    # Note: ATTRIBUTE source type removed - not reliably supported
+    # Use HEADER, CLAIM, or other reliable sources instead
+
+    # sessionId:
+    #   # REMOVED: ATTRIBUTE source type not reliably supported
+    #   # Use HEADER or CLAIM sources for user identification instead
     
     # ========================================
     # PATTERN 8: JWT Claims (Extract-Only)

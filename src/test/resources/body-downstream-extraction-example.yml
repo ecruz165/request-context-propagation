@@ -1,0 +1,178 @@
+# Example configuration for BODY downstream response extraction
+# This demonstrates how to extract values from downstream service JSON responses
+
+request-context:
+  fields:
+    
+    # Extract specific field from downstream JSON response
+    downstreamUserEmail:
+      downstream:
+        inbound:
+          source: "BODY"
+          key: "$.user.profile.email"  # JSONPath to extract email
+      observability:
+        includeInLogs: true
+        logging:
+          mdcKey: "downstream.user.email"
+    
+    # Extract nested object from downstream response
+    userPreferences:
+      downstream:
+        inbound:
+          source: "BODY"
+          key: "$.user.preferences"  # Extract entire preferences object
+      observability:
+        includeInLogs: true
+        logging:
+          mdcKey: "downstream.user.preferences"
+    
+    # Extract array element from downstream response
+    firstResultId:
+      downstream:
+        inbound:
+          source: "BODY"
+          key: "$.results[0].id"  # Extract ID from first result in array
+      observability:
+        includeInLogs: true
+        logging:
+          mdcKey: "downstream.first.result.id"
+    
+    # Extract entire downstream JSON response
+    fullApiResponse:
+      downstream:
+        inbound:
+          source: "BODY"
+          key: "$"  # Extract entire JSON response
+      observability:
+        includeInLogs: true
+        logging:
+          mdcKey: "downstream.full.response"
+      security:
+        sensitive: true
+        masking: "*-50"  # Show last 50 characters for debugging
+    
+    # Extract with fallback to default value
+    serviceVersion:
+      downstream:
+        inbound:
+          source: "BODY"
+          key: "$.metadata.version"
+          defaultValue: "unknown"
+      observability:
+        includeInLogs: true
+        logging:
+          mdcKey: "downstream.service.version"
+    
+    # Extract numeric value (will be converted to string)
+    responseTime:
+      downstream:
+        inbound:
+          source: "BODY"
+          key: "$.metadata.processingTimeMs"
+      observability:
+        includeInMetrics: true
+        metricName: "downstream_processing_time"
+    
+    # Extract boolean value (will be converted to string)
+    operationSuccess:
+      downstream:
+        inbound:
+          source: "BODY"
+          key: "$.success"
+      observability:
+        includeInLogs: true
+        logging:
+          mdcKey: "downstream.operation.success"
+    
+    # Complex JSONPath with filtering
+    activeUsersCount:
+      downstream:
+        inbound:
+          source: "BODY"
+          key: "$.users[?(@.status == 'active')].length()"
+      observability:
+        includeInMetrics: true
+        metricName: "active_users_count"
+    
+    # Extract from deeply nested structure
+    paymentMethodType:
+      downstream:
+        inbound:
+          source: "BODY"
+          key: "$.user.billing.paymentMethods[0].type"
+      observability:
+        includeInLogs: true
+        logging:
+          mdcKey: "downstream.payment.method.type"
+
+# Example downstream service responses that would work with above config:
+
+# Response 1: User Profile Service
+# {
+#   "user": {
+#     "id": "12345",
+#     "profile": {
+#       "email": "john.doe@example.com",
+#       "name": "John Doe"
+#     },
+#     "preferences": {
+#       "theme": "dark",
+#       "notifications": true
+#     },
+#     "billing": {
+#       "paymentMethods": [
+#         {
+#           "type": "credit_card",
+#           "last4": "1234"
+#         }
+#       ]
+#     }
+#   },
+#   "metadata": {
+#     "version": "2.1.0",
+#     "processingTimeMs": 45
+#   },
+#   "success": true
+# }
+
+# Response 2: Search Results Service
+# {
+#   "results": [
+#     {
+#       "id": "result-1",
+#       "name": "First Result",
+#       "score": 95.5
+#     },
+#     {
+#       "id": "result-2",
+#       "name": "Second Result", 
+#       "score": 87.2
+#     }
+#   ],
+#   "total": 2,
+#   "metadata": {
+#     "processingTimeMs": 23
+#   },
+#   "success": true
+# }
+
+# Response 3: User Management Service
+# {
+#   "users": [
+#     {
+#       "id": "user1",
+#       "status": "active"
+#     },
+#     {
+#       "id": "user2", 
+#       "status": "inactive"
+#     },
+#     {
+#       "id": "user3",
+#       "status": "active"
+#     }
+#   ],
+#   "metadata": {
+#     "version": "1.5.2"
+#   }
+# }
