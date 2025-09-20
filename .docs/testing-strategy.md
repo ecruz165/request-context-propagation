@@ -63,6 +63,7 @@ partyId: 654321
 visionId: 123456
 
 ## TestSuite Package Structure
+```text
 src/test/java/com/example/contextpropagation/
 ├── config/
 │   ├── TestContextConfig.java
@@ -94,7 +95,7 @@ src/test/java/com/example/contextpropagation/
 ├── CrossThreadPropagationTest.java
 ├── NestedAsyncPropagationTest.java
 └── ErrorHandlingContextTest.java
-
+```
 
 ### Test Execution Commands
 ```bash
