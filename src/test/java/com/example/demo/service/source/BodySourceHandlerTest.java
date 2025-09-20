@@ -2,7 +2,6 @@ package com.example.demo.service.source;
 
 import com.example.demo.config.props.RequestContextProperties.InboundConfig;
 import com.example.demo.config.props.RequestContextProperties.SourceType;
-import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;

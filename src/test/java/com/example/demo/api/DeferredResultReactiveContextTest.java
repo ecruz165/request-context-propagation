@@ -1,7 +1,6 @@
 package com.example.demo.api;
 
 import com.example.demo.config.BaseApiTest;
-import com.github.tomakehurst.wiremock.client.WireMock;
 import io.restassured.RestAssured;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
