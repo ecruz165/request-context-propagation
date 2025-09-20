@@ -5,6 +5,12 @@
 
 set -e
 
+# Source common utilities
+source "$(dirname "$0")/common.sh"
+
+# Ensure we're working from project root
+ensure_project_root
+
 PROFILE=${1:-json-logs}
 
 echo "🚀 Starting application with logging profile: $PROFILE"

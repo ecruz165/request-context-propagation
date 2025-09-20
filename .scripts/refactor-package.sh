@@ -6,33 +6,15 @@
 
 set -e  # Exit on any error
 
-# Color codes for output
-RED='\033[0;31m'
-GREEN='\033[0;32m'
-YELLOW='\033[1;33m'
-BLUE='\033[0;34m'
-NC='\033[0m' # No Color
+# Source common utilities
+source "$(dirname "$0")/common.sh"
+
+# Ensure we're working from project root
+ensure_project_root
 
 # Configuration
 OLD_PACKAGE="com.example.demo"
 OLD_PATH="com/example/demo"
-
-# Function to print colored output
-print_step() {
-    echo -e "${BLUE}Step $1: $2${NC}"
-}
-
-print_success() {
-    echo -e "${GREEN}✓ $1${NC}"
-}
-
-print_warning() {
-    echo -e "${YELLOW}⚠ $1${NC}"
-}
-
-print_error() {
-    echo -e "${RED}✗ $1${NC}"
-}
 
 # Validate arguments
 if [ $# -ne 1 ]; then
