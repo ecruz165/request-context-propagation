@@ -1,9 +1,9 @@
 #!/bin/bash
 
 # Package Refactoring Script for Request Context Propagation Module
-# Usage: ./refactor-package.sh <new_package_name> [old_package_name]
+# Usage: ./refactor-package.sh [old_package_name] <new_package_name>
 # Example: ./refactor-package.sh com.mycompany.requestcontext
-# Example: ./refactor-package.sh com.mycompany.requestcontext com.example.demo
+# Example: ./refactor-package.sh com.example.demo com.mycompany.requestcontext
 
 set -e  # Exit on any error
 
@@ -17,73 +17,98 @@ ensure_project_root
 detect_main_package() {
     local java_files
     local packages
+    local base_packages
     local main_package
-
-    print_info "Auto-detecting main package..."
 
     # Find all Java files and extract package declarations
     java_files=$(find src/main/java -name "*.java" -type f 2>/dev/null || true)
 
     if [ -z "$java_files" ]; then
-        print_error "No Java files found in src/main/java"
+        echo "ERROR: No Java files found in src/main/java" >&2
         return 1
     fi
 
-    # Extract unique package declarations and find the most common base package
+    # Extract unique package declarations
     packages=$(grep -h "^package " $java_files 2>/dev/null | \
                sed 's/package \(.*\);/\1/' | \
-               sort | uniq -c | sort -nr)
+               sort | uniq)
 
     if [ -z "$packages" ]; then
-        print_error "No package declarations found in Java files"
+        echo "ERROR: No package declarations found in Java files" >&2
         return 1
     fi
 
-    # Get the most common package (first line after sorting by count)
-    main_package=$(echo "$packages" | head -1 | awk '{print $2}')
+    # Find the common base package by looking for the shortest package that all others start with
+    # First, get all unique packages and find the shortest common prefix
+    base_packages=$(echo "$packages" | \
+                   awk -F'.' '{print $1"."$2"."$3}' | \
+                   sort | uniq -c | sort -nr | \
+                   head -1 | \
+                   awk '{print $2}')
+
+    if [ -z "$base_packages" ]; then
+        # Fallback: get the most common 2-level package
+        base_packages=$(echo "$packages" | \
+                       awk -F'.' '{print $1"."$2}' | \
+                       sort | uniq -c | sort -nr | \
+                       head -1 | \
+                       awk '{print $2}')
+    fi
+
+    main_package="$base_packages"
 
     if [ -z "$main_package" ]; then
-        print_error "Could not determine main package"
+        echo "ERROR: Could not determine main package" >&2
         return 1
     fi
 
-    print_success "Detected main package: $main_package"
     echo "$main_package"
 }
 
 
 # Validate arguments
 if [ $# -lt 1 ] || [ $# -gt 2 ]; then
-    print_error "Usage: $0 <new_package_name> [old_package_name]"
+    print_error "Usage: $0 [old_package_name] <new_package_name>"
     print_error "Example: $0 com.mycompany.requestcontext"
-    print_error "Example: $0 com.mycompany.requestcontext com.example.demo"
+    print_error "Example: $0 com.example.demo com.mycompany.requestcontext"
     print_error ""
     print_info "If old_package_name is not provided, it will be auto-detected"
     exit 1
 fi
 
-NEW_PACKAGE="$1"
-NEW_PATH="${NEW_PACKAGE//./\/}"
-
-# Determine old package
-if [ $# -eq 2 ]; then
-    OLD_PACKAGE="$2"
-    print_info "Using specified old package: $OLD_PACKAGE"
-else
-    OLD_PACKAGE=$(detect_main_package)
+# Determine old and new packages based on argument count
+if [ $# -eq 1 ]; then
+    # Only new package provided, auto-detect old package
+    NEW_PACKAGE="$1"
+    OLD_PACKAGE=$(detect_main_package 2>&1)
     if [ $? -ne 0 ]; then
         print_error "Failed to auto-detect old package. Please specify it manually."
         exit 1
     fi
+    print_info "Auto-detected old package: $OLD_PACKAGE"
+else
+    # Both packages provided: old_package new_package
+    OLD_PACKAGE="$1"
+    NEW_PACKAGE="$2"
+    print_info "Using specified old package: $OLD_PACKAGE"
 fi
 
-OLD_PATH="${OLD_PACKAGE//./\/}"
+NEW_PATH=$(echo "$NEW_PACKAGE" | tr '.' '/')
+
+OLD_PATH=$(echo "$OLD_PACKAGE" | tr '.' '/')
 
 echo -e "${GREEN}Starting package rename from $OLD_PACKAGE to $NEW_PACKAGE...${NC}"
 
-# Validate new package name format
+# Validate package name formats
+if [[ ! $OLD_PACKAGE =~ ^[a-z][a-z0-9]*(\.[a-z][a-z0-9]*)*$ ]]; then
+    print_error "Invalid old package name format: $OLD_PACKAGE"
+    print_error "Use lowercase letters and dots (e.g., com.example.demo)"
+    exit 1
+fi
+
 if [[ ! $NEW_PACKAGE =~ ^[a-z][a-z0-9]*(\.[a-z][a-z0-9]*)*$ ]]; then
-    print_error "Invalid package name format. Use lowercase letters and dots (e.g., com.mycompany.module)"
+    print_error "Invalid new package name format: $NEW_PACKAGE"
+    print_error "Use lowercase letters and dots (e.g., com.mycompany.module)"
     exit 1
 fi
 
@@ -149,8 +174,9 @@ move_package_tree() {
     local new_path="$3"
 
     if [ -d "$source_base/$old_path" ]; then
-        # Create parent directory for new path
-        mkdir -p "$(dirname "$source_base/$new_path")"
+        # Create parent directories for new path
+        local new_parent_dir="$(dirname "$source_base/$new_path")"
+        mkdir -p "$new_parent_dir"
 
         # Move the entire directory tree from old to new location
         mv "$source_base/$old_path" "$source_base/$new_path"
