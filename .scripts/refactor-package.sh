@@ -1,8 +1,9 @@
 #!/bin/bash
 
 # Package Refactoring Script for Request Context Propagation Module
-# Usage: ./refactor-package.sh <new_package_name>
+# Usage: ./refactor-package.sh <new_package_name> [old_package_name]
 # Example: ./refactor-package.sh com.mycompany.requestcontext
+# Example: ./refactor-package.sh com.mycompany.requestcontext com.example.demo
 
 set -e  # Exit on any error
 
@@ -12,19 +13,71 @@ source "$(dirname "$0")/common.sh"
 # Ensure we're working from project root
 ensure_project_root
 
-# Configuration
-OLD_PACKAGE="com.example.demo"
-OLD_PATH="com/example/demo"
+# Function to detect the main package automatically
+detect_main_package() {
+    local java_files
+    local packages
+    local main_package
+
+    print_info "Auto-detecting main package..."
+
+    # Find all Java files and extract package declarations
+    java_files=$(find src/main/java -name "*.java" -type f 2>/dev/null || true)
+
+    if [ -z "$java_files" ]; then
+        print_error "No Java files found in src/main/java"
+        return 1
+    fi
+
+    # Extract unique package declarations and find the most common base package
+    packages=$(grep -h "^package " $java_files 2>/dev/null | \
+               sed 's/package \(.*\);/\1/' | \
+               sort | uniq -c | sort -nr)
+
+    if [ -z "$packages" ]; then
+        print_error "No package declarations found in Java files"
+        return 1
+    fi
+
+    # Get the most common package (first line after sorting by count)
+    main_package=$(echo "$packages" | head -1 | awk '{print $2}')
+
+    if [ -z "$main_package" ]; then
+        print_error "Could not determine main package"
+        return 1
+    fi
+
+    print_success "Detected main package: $main_package"
+    echo "$main_package"
+}
+
 
 # Validate arguments
-if [ $# -ne 1 ]; then
-    print_error "Usage: $0 <new_package_name>"
+if [ $# -lt 1 ] || [ $# -gt 2 ]; then
+    print_error "Usage: $0 <new_package_name> [old_package_name]"
     print_error "Example: $0 com.mycompany.requestcontext"
+    print_error "Example: $0 com.mycompany.requestcontext com.example.demo"
+    print_error ""
+    print_info "If old_package_name is not provided, it will be auto-detected"
     exit 1
 fi
 
 NEW_PACKAGE="$1"
 NEW_PATH="${NEW_PACKAGE//./\/}"
+
+# Determine old package
+if [ $# -eq 2 ]; then
+    OLD_PACKAGE="$2"
+    print_info "Using specified old package: $OLD_PACKAGE"
+else
+    OLD_PACKAGE=$(detect_main_package)
+    if [ $? -ne 0 ]; then
+        print_error "Failed to auto-detect old package. Please specify it manually."
+        exit 1
+    fi
+fi
+
+OLD_PATH="${OLD_PACKAGE//./\/}"
 
 echo -e "${GREEN}Starting package rename from $OLD_PACKAGE to $NEW_PACKAGE...${NC}"
 
@@ -40,85 +93,123 @@ if [ ! -f "pom.xml" ] || [ ! -d "src" ]; then
     exit 1
 fi
 
-# Create backup
-print_step "1" "Creating backup..."
-BACKUP_DIR="backup-$(date +%Y%m%d-%H%M%S)"
-cp -r . "../$BACKUP_DIR" 2>/dev/null || {
-    print_warning "Could not create backup in parent directory, creating local backup"
-    mkdir -p "$BACKUP_DIR"
-    cp -r src pom.xml README.md *.md "$BACKUP_DIR/" 2>/dev/null || true
-}
-print_success "Backup created at $BACKUP_DIR"
+# Show summary of what will be changed
+print_info "Package refactoring summary:"
+print_info "  Old package: $OLD_PACKAGE"
+print_info "  New package: $NEW_PACKAGE"
+print_info "  Old path: src/main/java/$OLD_PATH"
+print_info "  New path: src/main/java/$NEW_PATH"
 
-# Step 2: Rename directory structure
-print_step "2" "Renaming directory structure..."
+# Count files that will be affected
+java_files=$(find . -name "*.java" -type f -exec grep -l "$OLD_PACKAGE" {} \; 2>/dev/null | wc -l)
+xml_files=$(find . -name "*.xml" -type f -exec grep -l "$OLD_PACKAGE" {} \; 2>/dev/null | wc -l)
+yaml_files=$(find . \( -name "*.yml" -o -name "*.yaml" \) -type f -exec grep -l "$OLD_PACKAGE" {} \; 2>/dev/null | wc -l)
+properties_files=$(find . -name "*.properties" -type f -exec grep -l "$OLD_PACKAGE" {} \; 2>/dev/null | wc -l)
 
-# Create new directory structure
-create_dir_if_not_exists() {
-    if [ ! -d "$1" ]; then
-        mkdir -p "$1"
-        print_success "Created directory: $1"
+print_info "Files to be updated:"
+print_info "  Java files: $java_files"
+print_info "  XML files: $xml_files"
+print_info "  YAML files: $yaml_files"
+print_info "  Properties files: $properties_files"
+
+echo ""
+read -p "Do you want to continue? (y/N): " -n 1 -r
+echo
+if [[ ! $REPLY =~ ^[Yy]$ ]]; then
+    print_info "Operation cancelled by user"
+    exit 0
+fi
+
+# Create backup in parent directory
+print_step "1" "Creating backup in parent directory..."
+
+# Get the current project directory name
+PROJECT_NAME=$(basename "$(pwd)")
+TIMESTAMP=$(date +%Y%m%d-%H%M%S)
+BACKUP_DIR="../${PROJECT_NAME}-backup-${TIMESTAMP}"
+
+# Create backup of entire directory in parent folder
+if cp -r . "$BACKUP_DIR" 2>/dev/null; then
+    print_success "Backup created at: $BACKUP_DIR"
+    print_info "Full project backup includes all files and git history"
+else
+    print_error "Failed to create backup in parent directory"
+    print_error "Please ensure you have write permissions in the parent directory"
+    print_error "Or run the script from a location where parent directory is writable"
+    exit 1
+fi
+
+# Step 2: Move directory structure from old base to new base
+print_step "2" "Moving directory structure from old base to new base..."
+
+# Function to move entire directory tree
+move_package_tree() {
+    local source_base="$1"
+    local old_path="$2"
+    local new_path="$3"
+
+    if [ -d "$source_base/$old_path" ]; then
+        # Create parent directory for new path
+        mkdir -p "$(dirname "$source_base/$new_path")"
+
+        # Move the entire directory tree from old to new location
+        mv "$source_base/$old_path" "$source_base/$new_path"
+        print_success "Moved directory tree: $source_base/$old_path -> $source_base/$new_path"
+
+        # Clean up empty parent directories of old path
+        cleanup_empty_parent_dirs "$source_base" "$(dirname "$old_path")"
+    else
+        print_info "Directory $source_base/$old_path does not exist, skipping"
     fi
 }
 
-# Main source directories
-create_dir_if_not_exists "src/main/java/$NEW_PATH"
-create_dir_if_not_exists "src/test/java/$NEW_PATH"
+# Function to clean up empty parent directories
+cleanup_empty_parent_dirs() {
+    local base_dir="$1"
+    local old_path="$2"
 
-# Move all files from old to new directory structure
-if [ -d "src/main/java/$OLD_PATH" ]; then
-    find "src/main/java/$OLD_PATH" -name "*.java" -type f | while read -r file; do
-        relative_path="${file#src/main/java/$OLD_PATH/}"
-        new_file="src/main/java/$NEW_PATH/$relative_path"
-        new_dir=$(dirname "$new_file")
-        mkdir -p "$new_dir"
-        mv "$file" "$new_file"
-        print_success "Moved: $file -> $new_file"
+    # Clean up parent directories going up the hierarchy
+    local current_path="$old_path"
+    while [ "$current_path" != "." ] && [ "$current_path" != "" ]; do
+        if [ "$current_path" = "." ]; then
+            break
+        fi
+
+        # Only remove if directory exists and is empty
+        if [ -d "$base_dir/$current_path" ] && [ -z "$(ls -A "$base_dir/$current_path" 2>/dev/null)" ]; then
+            rmdir "$base_dir/$current_path" 2>/dev/null || true
+            print_success "Removed empty directory: $base_dir/$current_path"
+        else
+            # Stop if directory is not empty (contains other packages)
+            break
+        fi
+
+        current_path=$(dirname "$current_path")
     done
-fi
+}
 
-if [ -d "src/test/java/$OLD_PATH" ]; then
-    find "src/test/java/$OLD_PATH" -name "*.java" -type f | while read -r file; do
-        relative_path="${file#src/test/java/$OLD_PATH/}"
-        new_file="src/test/java/$NEW_PATH/$relative_path"
-        new_dir=$(dirname "$new_file")
-        mkdir -p "$new_dir"
-        mv "$file" "$new_file"
-        print_success "Moved: $file -> $new_file"
-    done
-fi
+# Move main and test source directories
+move_package_tree "src/main/java" "$OLD_PATH" "$NEW_PATH"
+move_package_tree "src/test/java" "$OLD_PATH" "$NEW_PATH"
 
-# Remove old empty directories
-if [ -d "src/main/java/$OLD_PATH" ]; then
-    find "src/main/java/$OLD_PATH" -type d -empty -delete 2>/dev/null || true
-    rmdir "src/main/java/com/example" 2>/dev/null || true
-    rmdir "src/main/java/com" 2>/dev/null || true
-fi
-
-if [ -d "src/test/java/$OLD_PATH" ]; then
-    find "src/test/java/$OLD_PATH" -type d -empty -delete 2>/dev/null || true
-    rmdir "src/test/java/com/example" 2>/dev/null || true
-    rmdir "src/test/java/com" 2>/dev/null || true
-fi
-
-print_success "Directory structure renamed"
+print_success "Directory structure moved"
 
 # Step 3: Update package declarations and imports in Java files
-print_step "3" "Updating package declarations and imports..."
+print_step "3" "Updating package declarations and imports in all Java files..."
 
 find . -name "*.java" -type f | while read -r file; do
+    # Check if file contains any reference to the old package
     if grep -q "$OLD_PACKAGE" "$file"; then
         # Create backup of file
         cp "$file" "$file.bak"
-        
-        # Replace package declarations and imports
-        sed -i.tmp "s/package $OLD_PACKAGE/package $NEW_PACKAGE/g" "$file"
-        sed -i.tmp "s/import $OLD_PACKAGE/import $NEW_PACKAGE/g" "$file"
-        sed -i.tmp "s/import static $OLD_PACKAGE/import static $NEW_PACKAGE/g" "$file"
-        
+
+        # Simple find and replace: replace old package with new package everywhere
+        # This works because we've already moved the directory structure
+        sed -i.tmp "s/$OLD_PACKAGE/$NEW_PACKAGE/g" "$file"
+
         # Clean up temporary files
         rm -f "$file.tmp" "$file.bak"
-        
+
         print_success "Updated Java file: $file"
     fi
 done
