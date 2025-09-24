@@ -41,7 +41,7 @@
                 </pattern>
 
                 <!-- Custom Request Context Provider -->
-                <provider class="com.example.demo.logging.RequestContextJsonProvider">
+                <provider class="com.jefelabs.modules.requestcontext.logging.RequestContextJsonProvider">
                     <fieldName>context</fieldName>
                 </provider>
 
@@ -84,7 +84,7 @@
                 </pattern>
 
                 <!-- Custom Request Context Provider -->
-                <provider class="com.example.demo.logging.RequestContextJsonProvider">
+                <provider class="com.jefelabs.modules.requestcontext.logging.RequestContextJsonProvider">
                     <fieldName>context</fieldName>
                 </provider>
 
@@ -132,9 +132,9 @@
         </root>
 
         <!-- Enable debug logging for our application -->
-        <logger name="com.example.demo" level="DEBUG"/>
-        <logger name="com.example.demo.filter" level="INFO"/>
-        <logger name="com.example.demo.service" level="INFO"/>
+        <logger name="com.jefelabs.modules.requestcontext" level="DEBUG"/>
+        <logger name="com.jefelabs.modules.requestcontext.filter" level="INFO"/>
+        <logger name="com.jefelabs.modules.requestcontext.service" level="INFO"/>
     </springProfile>
 
     <!-- JSON Development Profile: Use JSON console for development -->
@@ -145,9 +145,9 @@
         </root>
 
         <!-- Enable debug logging for our application -->
-        <logger name="com.example.demo" level="DEBUG"/>
-        <logger name="com.example.demo.filter" level="INFO"/>
-        <logger name="com.example.demo.service" level="INFO"/>
+        <logger name="com.jefelabs.modules.requestcontext" level="DEBUG"/>
+        <logger name="com.jefelabs.modules.requestcontext.filter" level="INFO"/>
+        <logger name="com.jefelabs.modules.requestcontext.service" level="INFO"/>
     </springProfile>
     
     <!-- Production Profile: Use JSON logging -->
@@ -170,7 +170,7 @@
         </root>
         
         <!-- Enable our application logs for testing -->
-        <logger name="com.example.demo" level="INFO"/>
+        <logger name="com.jefelabs.modules.requestcontext" level="INFO"/>
     </springProfile>
     
     <!-- Default configuration (when no profile is active) - Use JSON by default -->
@@ -180,7 +180,7 @@
             <appender-ref ref="ASYNC_JSON"/>
         </root>
 
-        <logger name="com.example.demo" level="WARN"/>
+        <logger name="com.jefelabs.modules.requestcontext" level="WARN"/>
     </springProfile>
     
     <!-- Specific logger configurations -->
@@ -193,7 +193,7 @@
     </logger>
     
     <!-- Request Context specific logging - Library should be quiet by default -->
-    <logger name="com.example.demo" level="WARN"/>
-    <logger name="com.example.demo.service.RequestContextExtractor" level="WARN"/>
+    <logger name="com.jefelabs.modules.requestcontext" level="WARN"/>
+    <logger name="com.jefelabs.modules.requestcontext.service.RequestContextExtractor" level="WARN"/>
     
 </configuration>
