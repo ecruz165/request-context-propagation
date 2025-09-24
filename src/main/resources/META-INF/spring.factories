@@ -1,2 +1,2 @@
 org.springframework.boot.autoconfigure.EnableAutoConfiguration=\
-com.example.demo.autoconfigure.RequestContextBootstrap
+com.jefelabs.modules.requestcontext.autoconfigure.RequestContextBootstrap

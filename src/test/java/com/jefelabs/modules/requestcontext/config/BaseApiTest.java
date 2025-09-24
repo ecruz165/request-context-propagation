@@ -1,0 +1,42 @@
+package com.jefelabs.modules.requestcontext.config;
+
+import com.github.tomakehurst.wiremock.WireMockServer;
+import com.github.tomakehurst.wiremock.core.WireMockConfiguration;
+import com.jefelabs.modules.requestcontext.demo.config.TestSecurityConfig;
+import com.jefelabs.modules.requestcontext.demo.config.TestWebClientConfig;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
+import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.context.annotation.Import;
+import org.springframework.test.context.ActiveProfiles;
+
+/**
+ * Base class for API tests providing common test infrastructure
+ * - WireMock server for downstream service mocking
+ * - Test profiles and configuration
+ * - Common setup and teardown
+ */
+@SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT,
+                classes = com.jefelabs.modules.requestcontext.demo.DemoApplication.class)
+@ActiveProfiles("test")
+@Import({TestWebClientConfig.class, TestSecurityConfig.class})
+public abstract class BaseApiTest {
+
+    protected WireMockServer wireMock;
+
+    @BeforeEach
+    void setUpWireMock() {
+        // Start WireMock server on port 8089 (matches downstream service URL)
+        wireMock = new WireMockServer(WireMockConfiguration.options()
+                .port(8089)
+                .usingFilesUnderDirectory("src/test/resources"));
+        wireMock.start();
+    }
+
+    @AfterEach
+    void tearDownWireMock() {
+        if (wireMock != null) {
+            wireMock.stop();
+        }
+    }
+}
